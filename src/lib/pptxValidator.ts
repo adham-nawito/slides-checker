@@ -66,11 +66,11 @@ function evaluateRule(
     case 'font_size':        return checkFontSize(rule, slide)
     case 'font_family':      return checkFontFamily(rule, slide)
     case 'font_color':       return checkFontColor(rule, slide)
-    case 'background_color': return []  // requires theme resolution — not yet supported
+    case 'background_color': return []  // requires theme.xml resolution — not yet supported
     case 'header_presence':  return checkPresence(rule, slide, 'header')
     case 'footer_presence':  return checkPresence(rule, slide, 'footer')
     case 'slide_count':      return []  // checked at presentation level, not per-slide
-    case 'image_count':      return []  // requires <p:sp blipFill> parsing — future extension
+    case 'image_count':      return checkImageCount(rule, slide)
     case 'text_alignment':   return checkAlignment(rule, slide)
     case 'line_spacing':     return checkLineSpacing(rule, slide)
     default:                 return []
@@ -196,6 +196,19 @@ function checkPresence(
       actual:   'absent',
       expected: 'present',
       message:  `Slide has no ${target}`,
+    })]
+  }
+  return []
+}
+
+function checkImageCount(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
+  const expected = parseInt(rule.value, 10)
+  if (isNaN(expected)) return []
+  if (!compareNumbers(slide.imageCount, expected, rule.operator)) {
+    return [makeIssue(rule, slide, {
+      actual:   `${slide.imageCount}`,
+      expected: `${operatorLabel(rule.operator)} ${expected}`,
+      message:  `Slide has ${slide.imageCount} image${slide.imageCount !== 1 ? 's' : ''}, expected ${operatorLabel(rule.operator)} ${expected}`,
     })]
   }
   return []

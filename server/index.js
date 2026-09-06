@@ -301,8 +301,9 @@ const server = http.createServer(async (req, res) => {
         summary:      meta.summary     || { errors: 0, warnings: 0, infos: 0, passing: 0 },
         issues:       meta.issues      || [],
         storedName,
-        submittedBy:  user.username,     // always from the verified token
-        status:       'pending',
+        submittedBy:  user.username,           // always from the verified token
+        // Server computes status — client passPercent compared to the tag's stored threshold
+        status:       (meta.passPercent || 0) >= tag.threshold ? 'pending' : 'failed',
         submittedAt:  new Date().toISOString(),
         reviewedAt:   null,
       }

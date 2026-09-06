@@ -72,12 +72,20 @@ export interface SubmitPayload {
 }
 
 export const submissionsApi = {
-  /** Upload the PPTX file + JSON metadata as multipart/form-data */
-  submit: (payload: SubmitPayload, file: File) => {
-    const fd = new FormData()
-    fd.append('file', file, file.name)
-    fd.append('metadata', JSON.stringify(payload))
-    return apiClient.post<Submission>('/submissions', fd).then((r) => r.data)
+  /**
+   * Submit validation results to the server.
+   * - Pass a `file` when the presentation passed validation (admin can download it for review).
+   * - Omit `file` for failed submissions — metadata is stored for the user's history only.
+   */
+  submit: (payload: SubmitPayload, file?: File) => {
+    if (file) {
+      const fd = new FormData()
+      fd.append('file', file, file.name)
+      fd.append('metadata', JSON.stringify(payload))
+      return apiClient.post<Submission>('/submissions', fd).then((r) => r.data)
+    }
+    // No file — send JSON only (server stores as metadata-only, no download available)
+    return apiClient.post<Submission>('/submissions', payload).then((r) => r.data)
   },
 
   list: () =>

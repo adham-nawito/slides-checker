@@ -121,7 +121,7 @@ export interface Submission {
   submittedBy: string
   tagColor: string           // snapshot of the tag colour at submit time
   storedName: string | null  // server-side filename; null for legacy submissions
-  status: 'pending' | 'reviewed'
+  status: 'pending' | 'reviewed' | 'failed'
   submittedAt: string
   reviewedAt: string | null
 }

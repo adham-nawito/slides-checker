@@ -22,17 +22,18 @@ const PRESET_COLORS = [
   '#64748b', '#1e293b',
 ]
 
+// background_color is excluded — it requires theme.xml resolution which is not yet supported.
+// Keep the type in the system (for backwards-compat with stored tags) but don't let admins create new ones.
 const RULE_TYPE_OPTIONS: { value: RuleType; label: string }[] = [
-  { value: 'font_size',        label: 'Font Size'         },
-  { value: 'font_family',      label: 'Font Family'       },
-  { value: 'font_color',       label: 'Font Color'        },
-  { value: 'text_alignment',   label: 'Text Alignment'    },
-  { value: 'line_spacing',     label: 'Line Spacing'      },
-  { value: 'header_presence',  label: 'Header Presence'   },
-  { value: 'footer_presence',  label: 'Footer Presence'   },
-  { value: 'slide_count',      label: 'Slide Count'       },
-  { value: 'background_color', label: 'Background Color'  },
-  { value: 'image_count',      label: 'Image Count'       },
+  { value: 'font_size',       label: 'Font Size'        },
+  { value: 'font_family',     label: 'Font Family'      },
+  { value: 'font_color',      label: 'Font Color'       },
+  { value: 'text_alignment',  label: 'Text Alignment'   },
+  { value: 'line_spacing',    label: 'Line Spacing'     },
+  { value: 'header_presence', label: 'Header Presence'  },
+  { value: 'footer_presence', label: 'Footer Presence'  },
+  { value: 'slide_count',     label: 'Slide Count'      },
+  { value: 'image_count',     label: 'Image Count'      },
 ]
 
 // Rule types that apply to text elements — these support scope selection

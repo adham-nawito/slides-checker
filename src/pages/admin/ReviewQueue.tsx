@@ -1,225 +1,15 @@
 import { useState, useMemo } from 'react'
-import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, Download, Trash2, Search, X } from 'lucide-react'
+import { CheckCircle2, Search, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { submissionsApi } from '@/lib/api'
-import { formatBytes, timeAgo } from '@/lib/utils'
-import { SeverityIcon } from '@/components/shared/SeverityIcon'
+import { SubmissionCard, PendingBadge } from '@/components/shared/SubmissionCard'
 import { QueryError } from '@/components/shared/ErrorBoundary'
-import { getStoredUser } from '@/store/authStore'
-import type { Submission } from '@/types'
-
-// ─── Download hook ────────────────────────────────────────────────────────────
-// Uses fetch + Authorization header (plain <a href> can't send auth headers).
-
-function useDownload() {
-  const [downloading, setDownloading] = useState<string | null>(null)
-
-  async function download(id: string, fileName: string) {
-    if (downloading) return
-    setDownloading(id)
-    try {
-      const token = getStoredUser()?.token
-      const res = await fetch(submissionsApi.downloadUrl(id), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!res.ok) throw new Error(`Download failed: ${res.status}`)
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = fileName
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setDownloading(null)
-    }
-  }
-
-  return { download, downloading }
-}
-
-function SubmissionCard({
-  sub,
-  onReview,
-  onDelete,
-  deleting,
-}: {
-  sub: Submission
-  onReview: (id: string) => void
-  onDelete: (id: string) => void
-  deleting: boolean
-}) {
-  const [expanded,        setExpanded]        = useState(false)
-  const [confirmDelete,   setConfirmDelete]   = useState(false)
-  const { download, downloading } = useDownload()
-  const isPending = sub.status === 'pending'
-
-  return (
-    <Card className={isPending ? 'border-green-200' : 'opacity-70'}>
-      <CardContent className="py-4 px-5 space-y-3">
-        {/* Header row */}
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-muted shrink-0 mt-0.5">
-            <FileBarChart2 className="w-4 h-4 text-muted-foreground" />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-sm truncate">{sub.fileName}</p>
-              {isPending
-                ? <Badge className="bg-amber-50 text-amber-700 border-amber-200 border text-[10px] py-0 shrink-0">Pending review</Badge>
-                : <Badge variant="secondary" className="text-[10px] py-0 shrink-0">Reviewed</Badge>
-              }
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle"
-                style={{ background: sub.tagColor || '#6366f1' }}
-              />
-              {sub.tagName} · {formatBytes(sub.fileSize)} · {sub.slideCount} slides · {timeAgo(sub.submittedAt)}
-              {sub.submittedBy && (
-                <span className="ml-1.5 text-muted-foreground/70">· by {sub.submittedBy}</span>
-              )}
-            </p>
-          </div>
-
-          {/* Pass badge */}
-          <div className="shrink-0 text-right">
-            <p className="text-xl font-bold text-green-600">{sub.passPercent}%</p>
-            <p className="text-[10px] text-muted-foreground">pass rate</p>
-          </div>
-        </div>
-
-        {/* Summary badges */}
-        <div className="flex gap-2 flex-wrap">
-          {sub.summary.errors   > 0 && <Badge variant="destructive" className="text-[10px]">{sub.summary.errors} errors</Badge>}
-          {sub.summary.warnings > 0 && (
-            <Badge className="bg-amber-100 text-amber-700 border-amber-200 border text-[10px]">{sub.summary.warnings} warnings</Badge>
-          )}
-          {sub.summary.infos    > 0 && (
-            <Badge className="bg-blue-100 text-blue-700 border-blue-200 border text-[10px]">{sub.summary.infos} info</Badge>
-          )}
-          <Badge variant="outline" className="text-[10px]">{sub.summary.passing} rules passing</Badge>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs gap-1"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            {expanded ? 'Hide' : 'View'} issues ({sub.issues.length})
-          </Button>
-
-          {/* Download button — disabled for legacy submissions without a stored file */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs gap-1"
-            onClick={() => download(sub.id, sub.fileName)}
-            disabled={!sub.storedName || downloading === sub.id}
-            title={!sub.storedName ? 'File not available — submitted before file storage was enabled' : undefined}
-          >
-            <Download className="w-3.5 h-3.5" />
-            {downloading === sub.id ? 'Downloading…' : 'Download'}
-          </Button>
-
-          {isPending && (
-            <Button
-              size="sm"
-              className="ml-auto text-xs"
-              onClick={() => onReview(sub.id)}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-              Mark as Reviewed
-            </Button>
-          )}
-
-          {!isPending && sub.reviewedAt && (
-            <p className="text-xs text-muted-foreground">
-              Reviewed {timeAgo(sub.reviewedAt)}
-            </p>
-          )}
-
-          {/* Delete — inline confirmation */}
-          <div className="ml-auto flex items-center gap-1.5 shrink-0">
-            {confirmDelete ? (
-              <>
-                <span className="text-xs text-muted-foreground">Delete permanently?</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs h-7 px-2"
-                  onClick={() => setConfirmDelete(false)}
-                  disabled={deleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="text-xs h-7 px-2"
-                  onClick={() => onDelete(sub.id)}
-                  disabled={deleting}
-                >
-                  {deleting ? 'Deleting…' : 'Delete'}
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs h-7 px-2 text-muted-foreground hover:text-red-500"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Expanded issues */}
-        {expanded && sub.issues.length > 0 && (
-          <>
-            <Separator />
-            <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
-              {sub.issues.map((issue) => (
-                <div key={issue.id} className="flex gap-2 items-start py-1">
-                  <SeverityIcon severity={issue.severity} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-medium">{issue.ruleName}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {issue.slideIndex > 0 && <span className="mr-1">Slide {issue.slideIndex + 1}:</span>}
-                      {issue.message}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {expanded && sub.issues.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-2">No issues — all rules passed.</p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function ReviewQueue() {
   const qc = useQueryClient()
@@ -227,51 +17,57 @@ export default function ReviewQueue() {
   const [filterTagId, setFilterTagId] = useState('all')
 
   const {
-    data: submissions = [],
+    data: allSubmissions = [],
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
     queryKey: ['submissions'],
-    queryFn: submissionsApi.list,
+    queryFn:  submissionsApi.list,
     refetchInterval: 15_000,
   })
 
   const reviewMutation = useMutation({
     mutationFn: submissionsApi.markReviewed,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['submissions'] }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['submissions'] }),
   })
 
   const deleteMutation = useMutation({
     mutationFn: submissionsApi.remove,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['submissions'] }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['submissions'] }),
   })
 
-  // Unique tags present in submissions (for the filter dropdown)
+  // Admin review queue only shows pending + reviewed (not failed — those are user history only)
+  const queueSubmissions = useMemo(
+    () => allSubmissions.filter((s) => s.status !== 'failed'),
+    [allSubmissions],
+  )
+
+  // Unique tag options built from queue submissions (for the filter dropdown)
   const tagOptions = useMemo(() => {
     const seen = new Map<string, { id: string; name: string; color: string }>()
-    submissions.forEach((s) => {
+    queueSubmissions.forEach((s) => {
       if (!seen.has(s.tagId)) seen.set(s.tagId, { id: s.tagId, name: s.tagName, color: s.tagColor })
     })
     return Array.from(seen.values())
-  }, [submissions])
+  }, [queueSubmissions])
 
   // Apply search + tag filter
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return submissions.filter((s) => {
+    return queueSubmissions.filter((s) => {
       const matchesSearch = !q ||
         s.fileName.toLowerCase().includes(q) ||
         s.submittedBy?.toLowerCase().includes(q)
       const matchesTag = filterTagId === 'all' || s.tagId === filterTagId
       return matchesSearch && matchesTag
     })
-  }, [submissions, search, filterTagId])
+  }, [queueSubmissions, search, filterTagId])
 
   const pending  = filtered.filter((s) => s.status === 'pending')
   const reviewed = filtered.filter((s) => s.status === 'reviewed')
-  const totalPending = submissions.filter((s) => s.status === 'pending').length
+  const totalPending = queueSubmissions.filter((s) => s.status === 'pending').length
   const isFiltering  = search.trim() !== '' || filterTagId !== 'all'
 
   function clearFilters() { setSearch(''); setFilterTagId('all') }
@@ -286,12 +82,7 @@ export default function ReviewQueue() {
             Presentations that passed validation and are awaiting your content review.
           </p>
         </div>
-        {totalPending > 0 && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium shrink-0">
-            <Clock className="w-3.5 h-3.5" />
-            {totalPending} pending
-          </div>
-        )}
+        <PendingBadge count={totalPending} />
       </div>
 
       {isError ? (
@@ -300,7 +91,7 @@ export default function ReviewQueue() {
         <div className="space-y-3">
           {[1, 2].map((k) => <div key={k} className="h-32 rounded-xl bg-muted animate-pulse" />)}
         </div>
-      ) : submissions.length === 0 ? (
+      ) : queueSubmissions.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <CheckCircle2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
@@ -312,7 +103,7 @@ export default function ReviewQueue() {
         </Card>
       ) : (
         <>
-          {/* ── Filter bar ── */}
+          {/* Filter bar */}
           <div className="flex gap-2 flex-wrap items-center">
             <div className="relative flex-1 min-w-[180px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -356,7 +147,7 @@ export default function ReviewQueue() {
             )}
           </div>
 
-          {/* ── Tabs ── */}
+          {/* Tabs */}
           <Tabs defaultValue="pending">
             <TabsList className="mb-4">
               <TabsTrigger value="pending">
@@ -384,6 +175,7 @@ export default function ReviewQueue() {
                 pending.map((sub) => (
                   <SubmissionCard
                     key={sub.id}
+                    variant="admin"
                     sub={sub}
                     onReview={(id) => reviewMutation.mutate(id)}
                     onDelete={(id) => deleteMutation.mutate(id)}
@@ -402,6 +194,7 @@ export default function ReviewQueue() {
                 reviewed.map((sub) => (
                   <SubmissionCard
                     key={sub.id}
+                    variant="admin"
                     sub={sub}
                     onReview={(id) => reviewMutation.mutate(id)}
                     onDelete={(id) => deleteMutation.mutate(id)}

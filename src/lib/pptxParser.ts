@@ -34,6 +34,7 @@ export interface ParsedSlide {
   paragraphs: ParsedParagraph[]
   hasHeader: boolean
   hasFooter: boolean
+  imageCount: number     // number of <p:pic> picture shapes on the slide
 }
 
 export interface ParsedParagraph {
@@ -98,7 +99,10 @@ async function parseSlideXml(zip: JSZip, path: string, index: number): Promise<P
   const hasHeader = doc.querySelector('[type="title"], [type="ctrTitle"]') !== null
   const hasFooter = doc.querySelector('[type="ftr"]') !== null
 
-  return { index, title: titleText || null, paragraphs, hasHeader, hasFooter }
+  // Count picture shapes (<p:pic> elements) as the image count for the slide
+  const imageCount = doc.querySelectorAll('pic').length
+
+  return { index, title: titleText || null, paragraphs, hasHeader, hasFooter, imageCount }
 }
 
 /**

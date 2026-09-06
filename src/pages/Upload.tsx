@@ -19,13 +19,14 @@ import type { Tag, ValidationReport, SlideIssue, RuleSet } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Status = 'idle' | 'validating' | 'passed' | 'failed' | 'error' | 'submitting' | 'submitted'
+type Status = 'idle' | 'validating' | 'submitting' | 'submitted' | 'error'
 
 interface Result {
   report: ValidationReport
   passPercent: number
   passed: boolean
   slideCount: number
+  savedToServer: boolean  // false if the server submission failed (local result still shown)
 }
 
 // yield to the browser for one frame so progress updates render
@@ -74,7 +75,6 @@ export default function Upload() {
     setErrorMsg(null)
 
     try {
-      // Build internal RuleSet adapter from the tag
       const ruleSet: RuleSet = {
         id:          selectedTag.id,
         name:        selectedTag.name,
@@ -94,7 +94,7 @@ export default function Upload() {
       setProgress(80); setProgressMsg('Applying rules…'); await tick()
       const report = validatePresentation(parsed, ruleSet, 'local', file.name)
 
-      // Merge presentation-level issues
+      // Merge presentation-level issues into the report
       if (presIssues.length > 0) {
         report.issues.unshift(...presIssues)
         presIssues.forEach((i) => {
@@ -104,41 +104,40 @@ export default function Upload() {
         })
       }
 
-      setProgress(95); setProgressMsg('Calculating score…'); await tick()
+      setProgress(95); setProgressMsg('Saving result…'); await tick()
 
-      const totalRules   = ruleSet.rules.length
-      const passPercent  = totalRules > 0
+      const totalRules  = ruleSet.rules.length
+      const passPercent = totalRules > 0
         ? Math.round((report.summary.passing / totalRules) * 100)
         : 100
       const passed = passPercent >= selectedTag.threshold
 
-      const res: Result = { report, passPercent, passed, slideCount: parsed.slideCount }
-      setProgress(100)
-      setResult(res)
-
-      if (passed) {
-        setStatus('submitting')
-        try {
-          await submissionsApi.submit({
-            fileName:    file.name,
-            fileSize:    file.size,
-            tagId:       selectedTag.id,
-            tagName:     selectedTag.name,
-            tagColor:    selectedTag.color,
-            passPercent,
-            slideCount:  parsed.slideCount,
-            summary:     report.summary,
-            issues:      report.issues,
-          }, file)
-          setStatus('submitted')
-        } catch (submitErr) {
-          // Still show the pass result; just note the submission failed
-          setErrorMsg(submitErr instanceof Error ? submitErr.message : 'Submission failed')
-          setStatus('passed')
-        }
-      } else {
-        setStatus('failed')
+      const payload = {
+        fileName:    file.name,
+        fileSize:    file.size,
+        tagId:       selectedTag.id,
+        tagName:     selectedTag.name,
+        tagColor:    selectedTag.color,
+        passPercent,
+        slideCount:  parsed.slideCount,
+        summary:     report.summary,
+        issues:      report.issues,
       }
+
+      setStatus('submitting')
+      let savedToServer = false
+      try {
+        // Send file only when passing — admin needs it for content review.
+        // Failed submissions are metadata-only (stored in user history, not visible to admin).
+        await submissionsApi.submit(payload, passed ? file : undefined)
+        savedToServer = true
+      } catch (submitErr) {
+        setErrorMsg(submitErr instanceof Error ? submitErr.message : 'Could not save result to server')
+      }
+
+      setProgress(100)
+      setResult({ report, passPercent, passed, slideCount: parsed.slideCount, savedToServer })
+      setStatus('submitted')
 
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to process file')
@@ -146,8 +145,8 @@ export default function Upload() {
     }
   }
 
-  const canValidate   = !!file && !!selectedTagId && status !== 'validating' && status !== 'submitting'
-  const isProcessing  = status === 'validating' || status === 'submitting'
+  const canValidate  = !!file && !!selectedTagId && status !== 'validating' && status !== 'submitting'
+  const isProcessing = status === 'validating' || status === 'submitting'
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
@@ -242,8 +241,8 @@ export default function Upload() {
       )}
 
       {/* Result */}
-      {(status === 'passed' || status === 'submitted' || status === 'failed' || status === 'error') && result && (
-        <ResultPanel status={status} result={result} tag={selectedTag} />
+      {status === 'submitted' && result && (
+        <ResultPanel result={result} tag={selectedTag} />
       )}
       {errorMsg && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
@@ -257,8 +256,8 @@ export default function Upload() {
 
 // ─── Result panel ─────────────────────────────────────────────────────────────
 
-function ResultPanel({ status, result, tag }: { status: Status; result: Result; tag: Tag | null }) {
-  const { report, passPercent, passed } = result
+function ResultPanel({ result, tag }: { result: Result; tag: Tag | null }) {
+  const { report, passPercent, passed, savedToServer } = result
 
   return (
     <Card className={passed ? 'border-green-200 bg-green-50/40' : 'border-red-200 bg-red-50/40'}>
@@ -294,11 +293,17 @@ function ResultPanel({ status, result, tag }: { status: Status; result: Result; 
           <Badge variant="outline">{report.summary.passing} rules passing</Badge>
         </div>
 
-        {/* Submitted notice */}
-        {status === 'submitted' && (
+        {/* Server save notice */}
+        {savedToServer && passed && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-100 border border-green-200 text-green-800 text-sm">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             Submitted for admin review.
+          </div>
+        )}
+        {savedToServer && !passed && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border text-muted-foreground text-sm">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            Result saved to your history.
           </div>
         )}
 
