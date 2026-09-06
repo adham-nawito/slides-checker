@@ -1,8 +1,9 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Upload, Tag, ClipboardList, LogOut, Presentation, History } from 'lucide-react'
+import { Upload, Tag, ClipboardList, LogOut, Presentation, History, Sun, Moon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import { useTheme } from '@/hooks/useTheme'
 import { submissionsApi } from '@/lib/api'
 import type { UserRole } from '@/types'
 
@@ -15,6 +16,7 @@ export function Sidebar({ role }: { role: UserRole }) {
   const { location } = useRouterState()
   const user   = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
+  const { dark, toggle } = useTheme()
 
   // Poll pending submissions count — admin only
   const { data: submissions = [] } = useQuery({
@@ -96,6 +98,19 @@ export function Sidebar({ role }: { role: UserRole }) {
             </div>
           </div>
         )}
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggle}
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-zinc-400 hover:text-white hover:bg-white/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {dark
+            ? <Sun  className="w-4 h-4 shrink-0" aria-hidden="true" />
+            : <Moon className="w-4 h-4 shrink-0" aria-hidden="true" />
+          }
+          {dark ? 'Light mode' : 'Dark mode'}
+        </button>
 
         {/* Sign out */}
         <button

@@ -89,6 +89,47 @@
   --sidebar-ring:                 #818CF8;
 }
 
+/* ── Dark mode overrides ─────────────────────────────────────────────────── */
+.dark {
+  /* Page surfaces */
+  --background:           #111113;
+  --foreground:           #F4F4F6;
+  --card:                 #1A1A1E;
+  --card-foreground:      #F4F4F6;
+  --popover:              #1A1A1E;
+  --popover-foreground:   #F4F4F6;
+
+  /* Brand / Actions — shift indigo lighter so it reads on dark bg */
+  --primary:              #818CF8;     /* indigo-400 */
+  --primary-foreground:   #FFFFFF;
+
+  /* Neutral surfaces */
+  --secondary:            #27272A;
+  --secondary-foreground: #F4F4F6;
+  --muted:                #27272A;
+  --muted-foreground:     #A1A1AA;     /* zinc-400 */
+  --accent:               #1E1B4B;     /* dark indigo tint */
+  --accent-foreground:    #A5B4FC;     /* indigo-300 */
+
+  /* Semantic */
+  --destructive:          #EF4444;
+
+  /* Chrome */
+  --border:               #2E2E35;
+  --input:                #2E2E35;
+  --ring:                 #6366F1;
+
+  /* Sidebar — slightly darker than the light-mode sidebar */
+  --sidebar:                      #0F0F11;
+  --sidebar-foreground:           #F4F4F6;
+  --sidebar-primary:              #818CF8;
+  --sidebar-primary-foreground:   #FFFFFF;
+  --sidebar-accent:               #1A1A1E;
+  --sidebar-accent-foreground:    #F4F4F6;
+  --sidebar-border:               #1A1A1E;
+  --sidebar-ring:                 #818CF8;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

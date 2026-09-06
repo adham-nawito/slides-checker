@@ -63,23 +63,23 @@ export default function Login() {
       </div>
 
       {/* ── Right panel — form ───────────────────────────────── */}
-      <div className="flex-1 flex flex-col justify-center items-center px-8 bg-white">
+      <div className="flex-1 flex flex-col justify-center items-center px-8 bg-background">
 
         {/* Mobile-only logo */}
         <div className="flex items-center gap-2.5 mb-10 lg:hidden">
           <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
             <Presentation className="w-4 h-4 text-white" aria-hidden="true" />
           </div>
-          <span className="font-semibold text-zinc-900">SlideCheck</span>
+          <span className="font-semibold text-foreground">SlideCheck</span>
         </div>
 
         <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-bold text-zinc-900 mb-1">Sign in</h1>
-          <p className="text-zinc-500 text-sm mb-8">Enter your credentials to continue.</p>
+          <h1 className="text-2xl font-bold text-foreground mb-1">Sign in</h1>
+          <p className="text-muted-foreground text-sm mb-8">Enter your credentials to continue.</p>
 
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-zinc-700">Username</Label>
+              <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 autoComplete="username"
@@ -91,7 +91,7 @@ export default function Login() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-zinc-700">Password</Label>
+              <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -106,7 +106,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label={showPw ? 'Hide password' : 'Show password'}
                 >
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
