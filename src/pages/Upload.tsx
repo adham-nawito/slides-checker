@@ -134,8 +134,10 @@ export default function Upload() {
             issues:      report.issues,
           }, file)
           setStatus('submitted')
-        } catch {
-          setStatus('passed') // show pass result even if submit failed
+        } catch (submitErr) {
+          // Still show the pass result; just note the submission failed
+          setErrorMsg(submitErr instanceof Error ? submitErr.message : 'Submission failed')
+          setStatus('passed')
         }
       } else {
         setStatus('failed')
@@ -236,7 +238,7 @@ export default function Upload() {
       {(status === 'passed' || status === 'submitted' || status === 'failed' || status === 'error') && result && (
         <ResultPanel status={status} result={result} tag={selectedTag} />
       )}
-      {status === 'error' && errorMsg && (
+      {errorMsg && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
           <XCircle className="w-4 h-4 shrink-0" />
           {errorMsg}

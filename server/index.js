@@ -3,11 +3,18 @@ const url  = require('url')
 const path = require('path')
 const fs   = require('fs')
 const crypto = require('crypto')
-const { readDb, writeDb } = require('./db.js')
+const { readDb, withDb } = require('./db.js')
 const { createToken, verifyToken } = require('./auth.js')
 
-const PORT        = 3001
-const UPLOADS_DIR = path.join(__dirname, 'uploads')
+const PORT          = 3001
+const UPLOADS_DIR   = path.join(__dirname, 'uploads')
+const MAX_FILE_SIZE = 50 * 1024 * 1024  // 50 MB hard cap for uploaded PPTX files
+const ALLOWED_EXTS  = new Set(['.pptx', '.ppt'])
+const ALLOWED_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/octet-stream', // some browsers send this for .pptx
+])
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 
@@ -45,8 +52,23 @@ function parseBody(req) {
  */
 function parseMultipart(req) {
   return new Promise((resolve, reject) => {
+    // Fast-reject if Content-Length is already over the cap
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+    if (contentLength > MAX_FILE_SIZE) {
+      req.resume() // drain so the socket isn't left hanging
+      return reject(Object.assign(new Error('File too large'), { status: 413 }))
+    }
+
     const chunks = []
-    req.on('data',  c => chunks.push(c))
+    let received = 0
+    req.on('data', c => {
+      received += c.length
+      if (received > MAX_FILE_SIZE) {
+        req.destroy()
+        return reject(Object.assign(new Error('File too large'), { status: 413 }))
+      }
+      chunks.push(c)
+    })
     req.on('error', reject)
     req.on('end', () => {
       try {
@@ -156,7 +178,6 @@ const server = http.createServer(async (req, res) => {
       const user = getUser(req)
       if (!user || user.role !== 'admin') return json(res, 403, { error: 'Forbidden' })
       const body = await parseBody(req)
-      const db = readDb()
       const tag = {
         id:        crypto.randomUUID(),
         name:      body.name  || 'Unnamed Tag',
@@ -165,8 +186,7 @@ const server = http.createServer(async (req, res) => {
         rules:     Array.isArray(body.rules) ? body.rules : [],
         createdAt: new Date().toISOString(),
       }
-      db.tags.push(tag)
-      writeDb(db)
+      await withDb(db => db.tags.push(tag))
       return json(res, 201, tag)
     }
 
@@ -175,19 +195,26 @@ const server = http.createServer(async (req, res) => {
     if (tagMatch) {
       const user = getUser(req)
       if (!user || user.role !== 'admin') return json(res, 403, { error: 'Forbidden' })
-      const db  = readDb()
-      const idx = db.tags.findIndex(t => t.id === tagMatch[1])
-      if (idx === -1) return json(res, 404, { error: 'Not found' })
 
       if (method === 'PUT') {
-        const body = await parseBody(req)
-        db.tags[idx] = { ...db.tags[idx], ...body, id: tagMatch[1] }
-        writeDb(db)
-        return json(res, 200, db.tags[idx])
+        const body    = await parseBody(req)
+        const updated = await withDb(db => {
+          const idx = db.tags.findIndex(t => t.id === tagMatch[1])
+          if (idx === -1) return null
+          db.tags[idx] = { ...db.tags[idx], ...body, id: tagMatch[1] }
+          return db.tags[idx]
+        })
+        if (!updated) return json(res, 404, { error: 'Not found' })
+        return json(res, 200, updated)
       }
       if (method === 'DELETE') {
-        db.tags.splice(idx, 1)
-        writeDb(db)
+        const found = await withDb(db => {
+          const idx = db.tags.findIndex(t => t.id === tagMatch[1])
+          if (idx === -1) return false
+          db.tags.splice(idx, 1)
+          return true
+        })
+        if (!found) return json(res, 404, { error: 'Not found' })
         return json(res, 204, null)
       }
     }
@@ -207,16 +234,25 @@ const server = http.createServer(async (req, res) => {
         meta = parts.fields.metadata ? JSON.parse(parts.fields.metadata) : {}
 
         if (parts.files.file) {
-          const ext = path.extname(parts.files.file.filename || '.pptx') || '.pptx'
+          const f   = parts.files.file
+          const ext = path.extname(f.filename || '').toLowerCase()
+
+          // Validate file type by extension and MIME
+          if (!ALLOWED_EXTS.has(ext)) {
+            return json(res, 422, { error: `Invalid file type "${ext}". Only .pptx files are accepted.` })
+          }
+          if (f.contentType && !ALLOWED_MIMES.has(f.contentType.split(';')[0].trim())) {
+            return json(res, 422, { error: 'Invalid file content type. Only PowerPoint files are accepted.' })
+          }
+
           storedName = `${crypto.randomUUID()}${ext}`
-          fs.writeFileSync(path.join(UPLOADS_DIR, storedName), parts.files.file.data)
+          fs.writeFileSync(path.join(UPLOADS_DIR, storedName), f.data)
         }
       } else {
         // JSON-only (legacy / fallback)
         meta = await parseBody(req)
       }
 
-      const db = readDb()
       const submission = {
         id:           crypto.randomUUID(),
         fileName:     meta.fileName    || 'unknown.pptx',
@@ -233,8 +269,7 @@ const server = http.createServer(async (req, res) => {
         submittedAt:  new Date().toISOString(),
         reviewedAt:   null,
       }
-      db.submissions.push(submission)
-      writeDb(db)
+      await withDb(db => db.submissions.push(submission))
       return json(res, 201, submission)
     }
 
@@ -286,19 +321,25 @@ const server = http.createServer(async (req, res) => {
     if (reviewMatch && method === 'PATCH') {
       const user = getUser(req)
       if (!user || user.role !== 'admin') return json(res, 403, { error: 'Forbidden' })
-      const db  = readDb()
-      const idx = db.submissions.findIndex(s => s.id === reviewMatch[1])
-      if (idx === -1) return json(res, 404, { error: 'Not found' })
-      db.submissions[idx] = { ...db.submissions[idx], status: 'reviewed', reviewedAt: new Date().toISOString() }
-      writeDb(db)
-      return json(res, 200, db.submissions[idx])
+      const updated = await withDb(db => {
+        const idx = db.submissions.findIndex(s => s.id === reviewMatch[1])
+        if (idx === -1) return null
+        db.submissions[idx] = { ...db.submissions[idx], status: 'reviewed', reviewedAt: new Date().toISOString() }
+        return db.submissions[idx]
+      })
+      if (!updated) return json(res, 404, { error: 'Not found' })
+      return json(res, 200, updated)
     }
 
     json(res, 404, { error: 'Not found' })
 
   } catch (err) {
     console.error('[server error]', err)
-    json(res, 500, { error: 'Internal server error' })
+    const status = err.status || 500
+    const message = status === 413
+      ? `File too large. Maximum allowed size is ${MAX_FILE_SIZE / 1024 / 1024} MB.`
+      : 'Internal server error'
+    json(res, status, { error: message })
   }
 })
 
