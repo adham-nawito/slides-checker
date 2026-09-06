@@ -218,23 +218,35 @@ const server = http.createServer(async (req, res) => {
 
       const db = readDb()
       const submission = {
-        id:          crypto.randomUUID(),
-        fileName:    meta.fileName    || 'unknown.pptx',
-        fileSize:    meta.fileSize    || 0,
-        tagId:       meta.tagId       || '',
-        tagName:     meta.tagName     || '',
-        passPercent: meta.passPercent || 0,
-        slideCount:  meta.slideCount  || 0,
-        summary:     meta.summary     || { errors: 0, warnings: 0, infos: 0, passing: 0 },
-        issues:      meta.issues      || [],
-        storedName,                        // null if no file uploaded
-        status:      'pending',
-        submittedAt: new Date().toISOString(),
-        reviewedAt:  null,
+        id:           crypto.randomUUID(),
+        fileName:     meta.fileName    || 'unknown.pptx',
+        fileSize:     meta.fileSize    || 0,
+        tagId:        meta.tagId       || '',
+        tagName:      meta.tagName     || '',
+        passPercent:  meta.passPercent || 0,
+        slideCount:   meta.slideCount  || 0,
+        summary:      meta.summary     || { errors: 0, warnings: 0, infos: 0, passing: 0 },
+        issues:       meta.issues      || [],
+        storedName,                         // null if no file uploaded
+        submittedBy:  user.username,        // always from the verified token
+        status:       'pending',
+        submittedAt:  new Date().toISOString(),
+        reviewedAt:   null,
       }
       db.submissions.push(submission)
       writeDb(db)
       return json(res, 201, submission)
+    }
+
+    // ── GET /api/submissions/mine ─────────────────────────────────────────────
+    if (pathname === '/api/submissions/mine' && method === 'GET') {
+      const user = getUser(req)
+      if (!user) return json(res, 401, { error: 'Unauthorized' })
+      const db     = readDb()
+      const mine   = db.submissions
+        .filter(s => s.submittedBy === user.username)
+        .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+      return json(res, 200, mine)
     }
 
     // ── GET /api/submissions ──────────────────────────────────────────────────

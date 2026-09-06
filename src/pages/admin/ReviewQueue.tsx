@@ -93,6 +93,9 @@ function SubmissionCard({ sub, onReview }: { sub: Submission; onReview: (id: str
                 style={{ background: '#6366f1' }}
               />
               {sub.tagName} · {formatBytes(sub.fileSize)} · {sub.slideCount} slides · {timeAgo(sub.submittedAt)}
+              {sub.submittedBy && (
+                <span className="ml-1.5 text-muted-foreground/70">· by {sub.submittedBy}</span>
+              )}
             </p>
           </div>
 

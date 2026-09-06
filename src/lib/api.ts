@@ -75,6 +75,9 @@ export const submissionsApi = {
   list: () =>
     apiClient.get<Submission[]>('/submissions').then((r) => r.data),
 
+  mine: () =>
+    apiClient.get<Submission[]>('/submissions/mine').then((r) => r.data),
+
   markReviewed: (id: string) =>
     apiClient.patch<Submission>(`/submissions/${id}/review`).then((r) => r.data),
 

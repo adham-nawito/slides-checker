@@ -115,6 +115,7 @@ export interface Submission {
     passing: number
   }
   issues: SlideIssue[]
+  submittedBy: string
   status: 'pending' | 'reviewed'
   submittedAt: string
   reviewedAt: string | null

@@ -1,12 +1,15 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { Upload, Tag, ClipboardList, ChevronRight, LogOut, Presentation } from 'lucide-react'
+import { Upload, Tag, ClipboardList, ChevronRight, LogOut, Presentation, History } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import { submissionsApi } from '@/lib/api'
 import type { UserRole } from '@/types'
 
-const USER_NAV = [{ to: '/upload', label: 'Validate', icon: Upload }]
+const USER_NAV = [
+  { to: '/upload',          label: 'Validate',       icon: Upload  },
+  { to: '/my-submissions',  label: 'My Submissions',  icon: History },
+]
 
 export function Sidebar({ role }: { role: UserRole }) {
   const { location } = useRouterState()

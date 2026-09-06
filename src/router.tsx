@@ -6,10 +6,11 @@ import { getStoredUser } from './context/AuthContext'
 
 // ─── Lazy pages ───────────────────────────────────────────────────────────────
 
-const Login       = lazy(() => import('./pages/Login'))
-const Upload      = lazy(() => import('./pages/Upload'))
-const TagManager  = lazy(() => import('./pages/admin/TagManager'))
-const ReviewQueue = lazy(() => import('./pages/admin/ReviewQueue'))
+const Login          = lazy(() => import('./pages/Login'))
+const Upload         = lazy(() => import('./pages/Upload'))
+const MySubmissions  = lazy(() => import('./pages/user/MySubmissions'))
+const TagManager     = lazy(() => import('./pages/admin/TagManager'))
+const ReviewQueue    = lazy(() => import('./pages/admin/ReviewQueue'))
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
 
@@ -69,6 +70,18 @@ const uploadRoute = createRoute({
   },
 })
 
+// User: /my-submissions
+const mySubmissionsRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/my-submissions',
+  component: MySubmissions,
+  beforeLoad: () => {
+    const user = getStoredUser()
+    if (!user) throw redirect({ to: '/login' })
+    if (user.role === 'admin') throw redirect({ to: '/admin/tags' })
+  },
+})
+
 // Admin: /admin/tags
 const adminTagsRoute = createRoute({
   getParentRoute: () => layoutRoute,
@@ -111,6 +124,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   layoutRoute.addChildren([
     uploadRoute,
+    mySubmissionsRoute,
     adminTagsRoute,
     adminReviewRoute,
   ]),
