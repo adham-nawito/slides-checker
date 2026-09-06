@@ -82,6 +82,9 @@ export const submissionsApi = {
   markReviewed: (id: string) =>
     apiClient.patch<Submission>(`/submissions/${id}/review`).then((r) => r.data),
 
+  remove: (id: string) =>
+    apiClient.delete(`/submissions/${id}`),
+
   /** Returns a download URL for a submission file (admin only) */
   downloadUrl: (id: string) => `/api/submissions/${id}/download`,
 }

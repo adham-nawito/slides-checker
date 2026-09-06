@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, XCircle, AlertTriangle, Info, Download } from 'lucide-react'
+import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, XCircle, AlertTriangle, Info, Download, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -65,8 +65,19 @@ function useDownload() {
   return { download, downloading }
 }
 
-function SubmissionCard({ sub, onReview }: { sub: Submission; onReview: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
+function SubmissionCard({
+  sub,
+  onReview,
+  onDelete,
+  deleting,
+}: {
+  sub: Submission
+  onReview: (id: string) => void
+  onDelete: (id: string) => void
+  deleting: boolean
+}) {
+  const [expanded,        setExpanded]        = useState(false)
+  const [confirmDelete,   setConfirmDelete]   = useState(false)
   const { download, downloading } = useDownload()
   const isPending = sub.status === 'pending'
 
@@ -155,10 +166,46 @@ function SubmissionCard({ sub, onReview }: { sub: Submission; onReview: (id: str
           )}
 
           {!isPending && sub.reviewedAt && (
-            <p className="ml-auto text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Reviewed {timeAgo(sub.reviewedAt)}
             </p>
           )}
+
+          {/* Delete — inline confirmation */}
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
+            {confirmDelete ? (
+              <>
+                <span className="text-xs text-muted-foreground">Delete permanently?</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7 px-2"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="text-xs h-7 px-2"
+                  onClick={() => onDelete(sub.id)}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7 px-2 text-muted-foreground hover:text-red-500"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Expanded issues */}
@@ -203,6 +250,11 @@ export default function ReviewQueue() {
 
   const reviewMutation = useMutation({
     mutationFn: submissionsApi.markReviewed,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['submissions'] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: submissionsApi.remove,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['submissions'] }),
   })
 
@@ -269,6 +321,8 @@ export default function ReviewQueue() {
                   key={sub.id}
                   sub={sub}
                   onReview={(id) => reviewMutation.mutate(id)}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  deleting={deleteMutation.isPending && deleteMutation.variables === sub.id}
                 />
               ))
             )}
@@ -283,6 +337,8 @@ export default function ReviewQueue() {
                   key={sub.id}
                   sub={sub}
                   onReview={(id) => reviewMutation.mutate(id)}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  deleting={deleteMutation.isPending && deleteMutation.variables === sub.id}
                 />
               ))
             )}

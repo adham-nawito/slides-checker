@@ -317,6 +317,26 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    // ── DELETE /api/submissions/:id ───────────────────────────────────────────
+    const deleteSubMatch = pathname.match(/^\/api\/submissions\/([^/]+)$/)
+    if (deleteSubMatch && method === 'DELETE') {
+      const user = getUser(req)
+      if (!user || user.role !== 'admin') return json(res, 403, { error: 'Forbidden' })
+      const deleted = await withDb(db => {
+        const idx = db.submissions.findIndex(s => s.id === deleteSubMatch[1])
+        if (idx === -1) return null
+        const [sub] = db.submissions.splice(idx, 1)
+        return sub
+      })
+      if (!deleted) return json(res, 404, { error: 'Not found' })
+      // Clean up the stored file if it exists
+      if (deleted.storedName) {
+        const filePath = path.join(UPLOADS_DIR, deleted.storedName)
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      }
+      return json(res, 204, null)
+    }
+
     // ── PATCH /api/submissions/:id/review ─────────────────────────────────────
     const reviewMatch = pathname.match(/^\/api\/submissions\/([^/]+)\/review$/)
     if (reviewMatch && method === 'PATCH') {
