@@ -2,7 +2,7 @@ import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@t
 import { lazy, Suspense } from 'react'
 import { AppLayout } from './components/layout/AppLayout'
 import { Skeleton } from './components/ui/skeleton'
-import { getStoredUser } from './context/AuthContext'
+import { getStoredUser } from '@/store/authStore'
 
 // ─── Lazy pages ───────────────────────────────────────────────────────────────
 

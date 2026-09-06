@@ -22,7 +22,4 @@ export default defineConfig({
       },
     },
   },
-  optimizeDeps: {
-    exclude: ['@humansignal/editor'],
-  },
 })

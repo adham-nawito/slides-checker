@@ -1,35 +1,14 @@
 import { useState } from 'react'
-import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, XCircle, AlertTriangle, Info } from 'lucide-react'
+import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { submissionsApi } from '@/lib/api'
-import type { Submission, SlideIssue } from '@/types'
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins  = Math.floor(diff / 60_000)
-  const hours = Math.floor(diff / 3_600_000)
-  const days  = Math.floor(diff / 86_400_000)
-  if (days  > 0) return `${days}d ago`
-  if (hours > 0) return `${hours}h ago`
-  if (mins  > 0) return `${mins}m ago`
-  return 'just now'
-}
-
-function severityIcon(s: SlideIssue['severity']) {
-  if (s === 'error')   return <XCircle       className="w-3 h-3 text-red-500   shrink-0" />
-  if (s === 'warning') return <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
-  return                      <Info          className="w-3 h-3 text-blue-500  shrink-0" />
-}
+import { formatBytes, timeAgo } from '@/lib/utils'
+import { SeverityIcon } from '@/components/shared/SeverityIcon'
+import { QueryError } from '@/components/shared/ErrorBoundary'
+import type { Submission } from '@/types'
 
 // ─── Submission card ──────────────────────────────────────────────────────────
 
@@ -112,7 +91,7 @@ function SubmissionCard({ sub }: { sub: Submission }) {
             <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
               {sub.issues.map((issue) => (
                 <div key={issue.id} className="flex gap-2 items-start py-1">
-                  {severityIcon(issue.severity)}
+                  <SeverityIcon severity={issue.severity} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-medium">{issue.ruleName}</p>
                     <p className="text-[11px] text-muted-foreground">
@@ -133,7 +112,13 @@ function SubmissionCard({ sub }: { sub: Submission }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MySubmissions() {
-  const { data: submissions = [], isLoading } = useQuery({
+  const {
+    data: submissions = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['my-submissions'],
     queryFn: submissionsApi.mine,
     refetchInterval: 30_000, // poll so reviewed status updates automatically
@@ -170,7 +155,9 @@ export default function MySubmissions() {
         )}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <QueryError error={error} onRetry={refetch} />
+      ) : isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((k) => <div key={k} className="h-32 rounded-xl bg-muted animate-pulse" />)}
         </div>

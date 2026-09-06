@@ -26,7 +26,6 @@
     "radix-ui": "^1.4.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-shadow": "^20.6.0",
     "tailwind-merge": "^3.3.0",
     "zustand": "^5.0.5"
   },

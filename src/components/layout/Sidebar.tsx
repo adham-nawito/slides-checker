@@ -2,7 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { Upload, Tag, ClipboardList, ChevronRight, LogOut, Presentation, History } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/context/AuthContext'
+import { useAuthStore } from '@/store/authStore'
 import { submissionsApi } from '@/lib/api'
 import type { UserRole } from '@/types'
 
@@ -13,7 +13,7 @@ const USER_NAV = [
 
 export function Sidebar({ role }: { role: UserRole }) {
   const { location } = useRouterState()
-  const { logout }   = useAuth()
+  const logout = useAuthStore((s) => s.logout)
 
   // Poll pending submissions count — admin only
   const { data: submissions = [] } = useQuery({

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, XCircle, AlertTriangle, Info, Download, Trash2, Search, X } from 'lucide-react'
+import { CheckCircle2, Clock, ChevronDown, ChevronUp, FileBarChart2, Download, Trash2, Search, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,33 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { submissionsApi } from '@/lib/api'
-import type { Submission, SlideIssue } from '@/types'
+import { formatBytes, timeAgo } from '@/lib/utils'
+import { SeverityIcon } from '@/components/shared/SeverityIcon'
+import { QueryError } from '@/components/shared/ErrorBoundary'
+import { getStoredUser } from '@/store/authStore'
+import type { Submission } from '@/types'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins  = Math.floor(diff / 60_000)
-  const hours = Math.floor(diff / 3_600_000)
-  const days  = Math.floor(diff / 86_400_000)
-  if (days  > 0) return `${days}d ago`
-  if (hours > 0) return `${hours}h ago`
-  if (mins  > 0) return `${mins}m ago`
-  return 'just now'
-}
-
-function severityIcon(s: SlideIssue['severity']) {
-  if (s === 'error')   return <XCircle       className="w-3 h-3 text-red-500   shrink-0" />
-  if (s === 'warning') return <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
-  return                      <Info          className="w-3 h-3 text-blue-500  shrink-0" />
-}
-
-// ─── Submission card ──────────────────────────────────────────────────────────
+// ─── Download hook ────────────────────────────────────────────────────────────
+// Uses fetch + Authorization header (plain <a href> can't send auth headers).
 
 function useDownload() {
   const [downloading, setDownloading] = useState<string | null>(null)
@@ -44,8 +25,7 @@ function useDownload() {
     if (downloading) return
     setDownloading(id)
     try {
-      const raw = localStorage.getItem('pptx-auth')
-      const token = raw ? JSON.parse(raw).token : null
+      const token = getStoredUser()?.token
       const res = await fetch(submissionsApi.downloadUrl(id), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
@@ -217,7 +197,7 @@ function SubmissionCard({
             <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
               {sub.issues.map((issue) => (
                 <div key={issue.id} className="flex gap-2 items-start py-1">
-                  {severityIcon(issue.severity)}
+                  <SeverityIcon severity={issue.severity} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-medium">{issue.ruleName}</p>
                     <p className="text-[11px] text-muted-foreground">
@@ -246,7 +226,13 @@ export default function ReviewQueue() {
   const [search,      setSearch]      = useState('')
   const [filterTagId, setFilterTagId] = useState('all')
 
-  const { data: submissions = [], isLoading } = useQuery({
+  const {
+    data: submissions = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['submissions'],
     queryFn: submissionsApi.list,
     refetchInterval: 15_000,
@@ -308,7 +294,9 @@ export default function ReviewQueue() {
         )}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <QueryError error={error} onRetry={refetch} />
+      ) : isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((k) => <div key={k} className="h-32 rounded-xl bg-muted animate-pulse" />)}
         </div>

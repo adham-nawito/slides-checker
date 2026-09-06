@@ -1,26 +1,32 @@
 import axios from 'axios'
 import type { Tag, Submission, SlideIssue } from '@/types'
+import { getStoredUser, useAuthStore } from '@/store/authStore'
 
 export const apiClient = axios.create({
   baseURL: '/api',
   timeout: 60_000,
 })
 
-// Attach token from localStorage on every request
+// ─── Request: attach token from the Zustand store ────────────────────────────
 apiClient.interceptors.request.use((config) => {
-  try {
-    const raw = localStorage.getItem('pptx-auth')
-    if (raw) {
-      const { token } = JSON.parse(raw)
-      if (token) config.headers.Authorization = `Bearer ${token}`
-    }
-  } catch { /* ignore */ }
+  const token = getStoredUser()?.token
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
+// ─── Response: normalize errors + auto-logout on 401 ────────────────────────
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
+    // Auto-logout when a protected endpoint returns 401 (expired/invalid token).
+    // Skip the login endpoint itself — a wrong password is expected to return 401.
+    if (
+      err.response?.status === 401 &&
+      !err.config?.url?.includes('/auth/login')
+    ) {
+      useAuthStore.getState().logout()
+      window.location.href = '/login'
+    }
     const message = err.response?.data?.error ?? err.message ?? 'Unexpected error'
     return Promise.reject(new Error(message))
   },
@@ -30,7 +36,8 @@ apiClient.interceptors.response.use(
 
 export const authApi = {
   login: (username: string, password: string) =>
-    apiClient.post<{ token: string; role: string; username: string }>('/auth/login', { username, password })
+    apiClient
+      .post<{ token: string; role: string; username: string }>('/auth/login', { username, password })
       .then((r) => r.data),
 }
 
@@ -53,19 +60,19 @@ export const tagsApi = {
 // ─── Submissions ──────────────────────────────────────────────────────────────
 
 export interface SubmitPayload {
-  fileName: string
-  fileSize: number
-  tagId: string
-  tagName: string
-  tagColor: string
+  fileName:    string
+  fileSize:    number
+  tagId:       string
+  tagName:     string  // informational — server uses its own DB values
+  tagColor:    string  // informational — server uses its own DB values
   passPercent: number
-  slideCount: number
-  summary: { errors: number; warnings: number; infos: number; passing: number }
-  issues: SlideIssue[]
+  slideCount:  number
+  summary:     { errors: number; warnings: number; infos: number; passing: number }
+  issues:      SlideIssue[]
 }
 
 export const submissionsApi = {
-  /** Upload the file + JSON metadata as multipart/form-data */
+  /** Upload the PPTX file + JSON metadata as multipart/form-data */
   submit: (payload: SubmitPayload, file: File) => {
     const fd = new FormData()
     fd.append('file', file, file.name)
@@ -85,6 +92,5 @@ export const submissionsApi = {
   remove: (id: string) =>
     apiClient.delete(`/submissions/${id}`),
 
-  /** Returns a download URL for a submission file (admin only) */
   downloadUrl: (id: string) => `/api/submissions/${id}/download`,
 }

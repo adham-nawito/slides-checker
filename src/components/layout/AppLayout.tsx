@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { Outlet, useNavigate } from '@tanstack/react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Sidebar } from './Sidebar'
-import { useAuth } from '@/context/AuthContext'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { useAuthStore } from '@/store/authStore'
 
 export function AppLayout() {
-  const { user } = useAuth()
+  const user     = useAuthStore((s) => s.user)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -23,7 +24,10 @@ export function AppLayout() {
           className="flex-1 overflow-auto focus:outline-none"
           tabIndex={-1}
         >
-          <Outlet />
+          {/* Error boundary per page — a crash in one page won't take down the sidebar */}
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </TooltipProvider>

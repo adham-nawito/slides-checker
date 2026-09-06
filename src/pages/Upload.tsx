@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { CheckCircle2, XCircle, AlertTriangle, Info, Loader2, FileCheck } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle, Loader2, FileCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { formatBytes } from '@/lib/utils'
+import { SeverityIcon } from '@/components/shared/SeverityIcon'
+import { QueryError } from '@/components/shared/ErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -25,19 +28,6 @@ interface Result {
   slideCount: number
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function severityIcon(s: SlideIssue['severity']) {
-  if (s === 'error')   return <XCircle       className="w-3.5 h-3.5 text-red-500    shrink-0" />
-  if (s === 'warning') return <AlertTriangle className="w-3.5 h-3.5 text-amber-500  shrink-0" />
-  return                      <Info          className="w-3.5 h-3.5 text-blue-500   shrink-0" />
-}
-
 // yield to the browser for one frame so progress updates render
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
@@ -52,7 +42,13 @@ export default function Upload() {
   const [result, setResult]               = useState<Result | null>(null)
   const [errorMsg, setErrorMsg]           = useState<string | null>(null)
 
-  const { data: tags = [], isLoading: tagsLoading } = useQuery({
+  const {
+    data: tags = [],
+    isLoading: tagsLoading,
+    isError: tagsError,
+    error: tagsErrorMsg,
+    refetch: refetchTags,
+  } = useQuery({
     queryKey: ['tags'],
     queryFn: tagsApi.list,
   })
@@ -171,6 +167,8 @@ export default function Upload() {
         <CardContent>
           {tagsLoading ? (
             <div className="h-9 bg-muted animate-pulse rounded-md" />
+          ) : tagsError ? (
+            <QueryError error={tagsErrorMsg} onRetry={refetchTags} />
           ) : tags.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No guidelines configured yet. Ask your admin to create one.
@@ -323,7 +321,7 @@ function ResultPanel({ status, result, tag }: { status: Status; result: Result; 
 function IssueRow({ issue }: { issue: SlideIssue }) {
   return (
     <div className="flex gap-2 items-start rounded-md px-2 py-1.5 hover:bg-background/60 transition-colors">
-      {severityIcon(issue.severity)}
+      <SeverityIcon severity={issue.severity} size="md" />
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium text-foreground">{issue.ruleName}</p>
         <p className="text-xs text-muted-foreground">
