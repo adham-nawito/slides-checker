@@ -176,27 +176,35 @@ export default function Upload() {
               No guidelines configured yet. Ask your admin to create one.
             </p>
           ) : (
-            <Select value={selectedTagId} onValueChange={setSelectedTagId} disabled={isProcessing}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choose guidelines to validate against…" />
-              </SelectTrigger>
-              <SelectContent>
-                {tags.map((tag) => (
-                  <SelectItem key={tag.id} value={tag.id}>
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: tag.color }}
-                      />
-                      {tag.name}
-                      <span className="text-muted-foreground text-xs">
-                        ({tag.rules.length} rules · {tag.threshold}% threshold)
+            <>
+              <Select value={selectedTagId} onValueChange={setSelectedTagId} disabled={isProcessing}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose guidelines to validate against…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tags.map((tag) => (
+                    <SelectItem key={tag.id} value={tag.id}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ background: tag.color }}
+                        />
+                        {tag.name}
+                        <span className="text-muted-foreground text-xs">
+                          ({tag.rules.length} rules · {tag.threshold}% threshold)
+                        </span>
                       </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedTag && selectedTag.rules.length === 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  This guideline set has no rules — any file will pass automatically. Ask your admin to add rules.
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

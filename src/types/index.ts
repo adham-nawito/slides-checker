@@ -42,6 +42,8 @@ export type RuleOperator =
   | 'not_contains'
   | 'exists'
 
+export type RuleScope = 'all' | 'title' | 'heading' | 'body' | 'footer'
+
 export interface ValidationRule {
   id: string
   name: string
@@ -49,6 +51,7 @@ export interface ValidationRule {
   operator: RuleOperator
   value: string
   severity: 'error' | 'warning' | 'info'
+  scope: RuleScope   // which text area this rule targets (text-based rules only)
   description?: string
 }
 

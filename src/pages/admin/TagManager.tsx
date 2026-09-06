@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { tagsApi } from '@/lib/api'
-import type { Tag, ValidationRule, RuleType, RuleOperator } from '@/types'
+import type { Tag, ValidationRule, RuleType, RuleOperator, RuleScope } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,19 @@ const RULE_TYPE_OPTIONS: { value: RuleType; label: string }[] = [
   { value: 'slide_count',      label: 'Slide Count'       },
   { value: 'background_color', label: 'Background Color'  },
   { value: 'image_count',      label: 'Image Count'       },
+]
+
+// Rule types that apply to text elements — these support scope selection
+const SCOPED_RULE_TYPES = new Set<RuleType>([
+  'font_size', 'font_family', 'font_color', 'text_alignment', 'line_spacing',
+])
+
+const SCOPE_OPTIONS: { value: RuleScope; label: string }[] = [
+  { value: 'all',     label: 'All text'  },
+  { value: 'title',   label: 'Title'     },
+  { value: 'heading', label: 'Heading'   },
+  { value: 'body',    label: 'Body'      },
+  { value: 'footer',  label: 'Footer'    },
 ]
 
 const OPERATORS_FOR_TYPE: Record<RuleType, RuleOperator[]> = {
@@ -61,14 +74,20 @@ const ALIGNMENT_OPTIONS = ['left', 'center', 'right', 'justify']
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Unique key used for duplicate detection: type + scope (scope only matters for text rules) */
+function ruleKey(type: RuleType, scope: RuleScope) {
+  return SCOPED_RULE_TYPES.has(type) ? `${type}:${scope}` : type
+}
+
 function newRule(): ValidationRule {
   return {
-    id: `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    name: '',
-    type: 'font_size',
+    id:       `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name:     '',
+    type:     'font_size',
     operator: 'equals',
-    value: '',
+    value:    '',
     severity: 'error',
+    scope:    'all',
   }
 }
 
@@ -85,18 +104,33 @@ function needsValueInput(type: RuleType): boolean {
   return type !== 'header_presence' && type !== 'footer_presence'
 }
 
+/** Returns the index of any duplicate rule, or -1 if none */
+function findDuplicate(rules: ValidationRule[], excludeIdx?: number): number {
+  const seen = new Map<string, number>()
+  for (let i = 0; i < rules.length; i++) {
+    if (i === excludeIdx) continue
+    const key = ruleKey(rules[i].type, rules[i].scope ?? 'all')
+    if (seen.has(key)) return i
+    seen.set(key, i)
+  }
+  return -1
+}
+
 // ─── Rule row editor ──────────────────────────────────────────────────────────
 
 function RuleEditor({
   rule,
   onChange,
   onDelete,
+  isDuplicate,
 }: {
   rule: ValidationRule
   onChange: (updated: ValidationRule) => void
   onDelete: () => void
+  isDuplicate: boolean
 }) {
   const operators = OPERATORS_FOR_TYPE[rule.type]
+  const supportsScope = SCOPED_RULE_TYPES.has(rule.type)
 
   function setType(type: RuleType) {
     const ops = OPERATORS_FOR_TYPE[type]
@@ -104,12 +138,19 @@ function RuleEditor({
       ...rule,
       type,
       operator: ops[0],
-      value: defaultValueForType(type),
+      value:    defaultValueForType(type),
+      // Reset scope to 'all' when switching to a non-scoped type
+      scope: SCOPED_RULE_TYPES.has(type) ? (rule.scope ?? 'all') : 'all',
     })
   }
 
   return (
-    <div className="rounded-lg border bg-background p-3 space-y-2">
+    <div className={`rounded-lg border bg-background p-3 space-y-2 ${isDuplicate ? 'border-red-400 bg-red-50/40' : ''}`}>
+      {isDuplicate && (
+        <p className="text-[11px] text-red-600 font-medium">
+          Duplicate — a rule with this type{supportsScope ? ' and scope' : ''} already exists.
+        </p>
+      )}
       <div className="flex items-start gap-2">
         {/* Rule name */}
         <div className="flex-1 min-w-0">
@@ -148,6 +189,20 @@ function RuleEditor({
             ))}
           </SelectContent>
         </Select>
+
+        {/* Scope — only for text-based rules */}
+        {supportsScope && (
+          <Select value={rule.scope ?? 'all'} onValueChange={(v) => onChange({ ...rule, scope: v as RuleScope })}>
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SCOPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         {/* Operator */}
         {operators.length > 1 && (
@@ -246,7 +301,21 @@ function TagDialog({
     setForm((f) => ({ ...f, rules: f.rules.filter((_, i) => i !== idx) }))
   }
 
-  const isValid = form.name.trim().length > 0
+  // Which rule indices are duplicates (highlighted in red)
+  const duplicateIndices = new Set<number>()
+  const seen = new Map<string, number>()
+  form.rules.forEach((r, i) => {
+    const key = ruleKey(r.type, r.scope ?? 'all')
+    if (seen.has(key)) {
+      duplicateIndices.add(seen.get(key)!)
+      duplicateIndices.add(i)
+    } else {
+      seen.set(key, i)
+    }
+  })
+
+  const hasDuplicates = duplicateIndices.size > 0
+  const isValid = form.name.trim().length > 0 && form.rules.length > 0 && !hasDuplicates
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -328,8 +397,8 @@ function TagDialog({
             {rulesExpanded && (
               <div className="space-y-2">
                 {form.rules.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4 border border-dashed rounded-lg">
-                    No rules yet. Add rules to define formatting requirements.
+                  <p className="text-xs text-amber-600 text-center py-4 border border-dashed border-amber-300 bg-amber-50/50 rounded-lg">
+                    At least one rule is required before saving.
                   </p>
                 ) : (
                   form.rules.map((rule, idx) => (
@@ -338,6 +407,7 @@ function TagDialog({
                       rule={rule}
                       onChange={(updated) => updateRule(idx, updated)}
                       onDelete={() => deleteRule(idx)}
+                      isDuplicate={duplicateIndices.has(idx)}
                     />
                   ))
                 )}
@@ -346,7 +416,10 @@ function TagDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col items-end gap-2 sm:flex-row sm:items-center">
+          {hasDuplicates && (
+            <p className="text-xs text-red-600 mr-auto">Fix duplicate rules before saving.</p>
+          )}
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={() => onSave(form)} disabled={!isValid || saving}>
             {saving ? 'Saving…' : 'Save'}
