@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { submissionsApi } from '@/lib/api'
+import { submissionsApi, tagsApi } from '@/lib/api'
 import { SubmissionCard, PendingBadge } from '@/components/shared/SubmissionCard'
 import { QueryError } from '@/components/shared/ErrorBoundary'
 
@@ -38,20 +38,20 @@ export default function ReviewQueue() {
     onSuccess:  () => qc.invalidateQueries({ queryKey: ['submissions'] }),
   })
 
+  // All tags — drives the filter dropdown independently of what's in the queue
+  const { data: allTags = [] } = useQuery({
+    queryKey: ['tags'],
+    queryFn:  tagsApi.list,
+  })
+
   // Admin review queue only shows pending + reviewed (not failed — those are user history only)
   const queueSubmissions = useMemo(
     () => allSubmissions.filter((s) => s.status !== 'failed'),
     [allSubmissions],
   )
 
-  // Unique tag options built from queue submissions (for the filter dropdown)
-  const tagOptions = useMemo(() => {
-    const seen = new Map<string, { id: string; name: string; color: string }>()
-    queueSubmissions.forEach((s) => {
-      if (!seen.has(s.tagId)) seen.set(s.tagId, { id: s.tagId, name: s.tagName, color: s.tagColor })
-    })
-    return Array.from(seen.values())
-  }, [queueSubmissions])
+  // Reset tag filter if the selected tag is deleted
+  const tagOptions = allTags
 
   // Apply search + tag filter
   const filtered = useMemo(() => {
@@ -125,10 +125,10 @@ export default function ReviewQueue() {
 
             <Select value={filterTagId} onValueChange={setFilterTagId}>
               <SelectTrigger className="w-44 h-9 text-sm">
-                <SelectValue placeholder="All guideline sets" />
+                <SelectValue placeholder="All guideline tags" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All guideline sets</SelectItem>
+                <SelectItem value="all">All guideline tags</SelectItem>
                 {tagOptions.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     <span className="flex items-center gap-2">
@@ -137,6 +137,7 @@ export default function ReviewQueue() {
                     </span>
                   </SelectItem>
                 ))}
+
               </SelectContent>
             </Select>
 

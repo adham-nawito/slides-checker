@@ -555,13 +555,13 @@ export default function TagManager() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Guideline Sets</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Guideline tag</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Create and manage formatting rules that presentations are validated against.
           </p>
         </div>
         <Button onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" /> New Set
+          <Plus className="w-4 h-4 mr-2" /> New tag
         </Button>
       </div>
 
@@ -574,7 +574,7 @@ export default function TagManager() {
         <Card>
           <CardContent className="py-12 text-center">
             <Settings2 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm font-medium">No guideline sets yet</p>
+            <p className="text-sm font-medium">No guideline tag yet</p>
             <p className="text-xs text-muted-foreground mt-1">Create your first set to start validating presentations.</p>
             <Button className="mt-4" onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Create first set</Button>
           </CardContent>
