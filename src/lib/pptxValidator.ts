@@ -6,6 +6,15 @@
  *   Every text-based rule has a `scope` field ('all' | 'title' | 'heading' | 'body' | 'footer').
  *   The validator only checks paragraphs whose placeholderType matches the rule scope.
  *   Scope "all" bypasses filtering and checks every paragraph.
+ *
+ * Match-mode aggregation (per rule):
+ *   - 'all'     Every included slide must satisfy the rule (default)
+ *   - 'any'     At least one included slide must satisfy the rule
+ *   - 'min'     At least `matchValue` slides must satisfy the rule
+ *   - 'percent' At least `matchValue`% of included slides must satisfy the rule
+ *
+ *   `excludeFirst` skips the first N slides before applying the rule (e.g. cover slides).
+ *   `slide_count` is always presentation-level and ignores matchMode.
  */
 
 import type { ParsedPresentation, ParsedSlide, ParsedParagraph, ParsedRun } from './pptxParser'
@@ -21,9 +30,57 @@ export function validatePresentation(
 ): ValidationReport {
   const issues: SlideIssue[] = []
 
-  for (const slide of parsed.slides) {
-    for (const rule of ruleSet.rules) {
-      issues.push(...evaluateRule(rule, slide, parsed))
+  for (const rule of ruleSet.rules) {
+    // slide_count is handled at presentation level, not per-slide
+    if (rule.type === 'slide_count') continue
+
+    const skipN        = rule.excludeFirst ?? 0
+    const slidesToCheck = parsed.slides.slice(skipN)
+    const mode          = rule.matchMode ?? 'all'
+
+    if (mode === 'all') {
+      // ── Default: every slide must satisfy the rule ──────────────────────
+      for (const slide of slidesToCheck) {
+        issues.push(...evaluateRule(rule, slide, parsed))
+      }
+    } else {
+      // ── Aggregated modes: collect per-slide pass/fail, then decide ──────
+      const perSlide    = slidesToCheck.map((slide) => evaluateRule(rule, slide, parsed))
+      const passCount   = perSlide.filter((si) => si.length === 0).length
+      const total       = slidesToCheck.length
+
+      switch (mode) {
+        case 'any': {
+          if (passCount === 0) {
+            issues.push(makePresentationIssue(
+              rule,
+              `No slide satisfies "${rule.name}" — 0 of ${total} slides passed`,
+            ))
+          }
+          break
+        }
+        case 'min': {
+          const required = rule.matchValue ?? 1
+          if (passCount < required) {
+            issues.push(makePresentationIssue(
+              rule,
+              `Only ${passCount} of ${total} slides satisfy "${rule.name}" — need at least ${required}`,
+            ))
+          }
+          break
+        }
+        case 'percent': {
+          const required   = rule.matchValue ?? 50
+          const actualPct  = total === 0 ? 0 : Math.round((passCount / total) * 100)
+          if (actualPct < required) {
+            issues.push(makePresentationIssue(
+              rule,
+              `Only ${actualPct}% of slides satisfy "${rule.name}" — need at least ${required}%`,
+            ))
+          }
+          break
+        }
+      }
     }
   }
 
@@ -37,7 +94,7 @@ export function validatePresentation(
   const warnings = issues.filter((i) => i.severity === 'warning').length
   const infos    = issues.filter((i) => i.severity === 'info').length
 
-  // "Passing" = rules that produced zero issues across all slides
+  // "Passing" = rules that produced zero issues
   const failingRuleIds = new Set(issues.map((i) => i.ruleId))
   const passing = ruleSet.rules.filter((r) => !failingRuleIds.has(r.id)).length
 
@@ -261,6 +318,23 @@ function makeIssue(
     message:    overrides.message,
     actual:     overrides.actual,
     expected:   overrides.expected,
+  }
+}
+
+/**
+ * Creates a presentation-level issue (not tied to a specific slide).
+ * Used by 'any', 'min', and 'percent' match modes.
+ * slideIndex: -1 signals "presentation level" to the UI — no "Slide N:" prefix is shown.
+ */
+function makePresentationIssue(rule: ValidationRule, message: string): SlideIssue {
+  return {
+    id:         issueId(),
+    slideIndex: -1,
+    slideTitle: 'Presentation',
+    ruleId:     rule.id,
+    ruleName:   rule.name,
+    severity:   rule.severity,
+    message,
   }
 }
 

@@ -44,6 +44,16 @@ export type RuleOperator =
 
 export type RuleScope = 'all' | 'title' | 'heading' | 'body' | 'footer'
 
+/**
+ * Controls how a rule is aggregated across slides.
+ *
+ * - `all`     Every included slide must satisfy the rule (default — good for font_size, font_family, …)
+ * - `any`     At least one included slide must satisfy the rule (good for header_presence)
+ * - `min`     At least `matchValue` slides must satisfy the rule (e.g. "at least 5 slides have an image")
+ * - `percent` At least `matchValue`% of included slides must satisfy the rule
+ */
+export type RuleMatchMode = 'all' | 'any' | 'min' | 'percent'
+
 export interface ValidationRule {
   id: string
   name: string
@@ -51,8 +61,16 @@ export interface ValidationRule {
   operator: RuleOperator
   value: string
   severity: 'error' | 'warning' | 'info'
-  scope: RuleScope   // which text area this rule targets (text-based rules only)
+  scope: RuleScope      // which text placeholder this rule targets (text-based rules only)
   description?: string
+
+  // ── Slide-matching options ────────────────────────────────────────────────
+  /** How to aggregate the per-slide results. Defaults to 'all'. */
+  matchMode?: RuleMatchMode
+  /** Threshold for 'min' (slide count) and 'percent' (0–100) modes. */
+  matchValue?: number
+  /** Skip the first N slides when evaluating this rule (e.g. skip cover/title slides). */
+  excludeFirst?: number
 }
 
 // Internal adapter — used only by the validator functions

@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { tagsApi } from '@/lib/api'
-import type { Tag, ValidationRule, RuleType, RuleOperator, RuleScope } from '@/types'
+import type { Tag, ValidationRule, RuleType, RuleOperator, RuleScope, RuleMatchMode } from '@/types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,19 @@ const OPERATOR_LABELS: Record<RuleOperator, string> = {
 
 const ALIGNMENT_OPTIONS = ['left', 'center', 'right', 'justify']
 
+// Rule types where matchMode is meaningful (everything slide-level)
+const MATCH_MODE_RULE_TYPES = new Set<RuleType>([
+  'font_size', 'font_family', 'font_color', 'text_alignment', 'line_spacing',
+  'header_presence', 'footer_presence', 'image_count',
+])
+
+const MATCH_MODE_OPTIONS: { value: RuleMatchMode; label: string; hint: string }[] = [
+  { value: 'all',     label: 'All slides',    hint: 'Every slide must pass'                  },
+  { value: 'any',     label: 'Any slide',     hint: 'At least one slide must pass'           },
+  { value: 'min',     label: 'Min N slides',  hint: 'At least N slides must pass'            },
+  { value: 'percent', label: 'Min N%',        hint: 'At least N% of slides must pass'        },
+]
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Unique key used for duplicate detection: type + scope (scope only matters for text rules) */
@@ -82,13 +95,16 @@ function ruleKey(type: RuleType, scope: RuleScope) {
 
 function newRule(): ValidationRule {
   return {
-    id:       `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    name:     '',
-    type:     'font_size',
-    operator: 'equals',
-    value:    '',
-    severity: 'error',
-    scope:    'all',
+    id:           `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name:         '',
+    type:         'font_size',
+    operator:     'equals',
+    value:        '',
+    severity:     'error',
+    scope:        'all',
+    matchMode:    'all',
+    matchValue:   undefined,
+    excludeFirst: 0,
   }
 }
 
@@ -105,18 +121,6 @@ function needsValueInput(type: RuleType): boolean {
   return type !== 'header_presence' && type !== 'footer_presence'
 }
 
-/** Returns the index of any duplicate rule, or -1 if none */
-function findDuplicate(rules: ValidationRule[], excludeIdx?: number): number {
-  const seen = new Map<string, number>()
-  for (let i = 0; i < rules.length; i++) {
-    if (i === excludeIdx) continue
-    const key = ruleKey(rules[i].type, rules[i].scope ?? 'all')
-    if (seen.has(key)) return i
-    seen.set(key, i)
-  }
-  return -1
-}
-
 // ─── Rule row editor ──────────────────────────────────────────────────────────
 
 function RuleEditor({
@@ -130,8 +134,11 @@ function RuleEditor({
   onDelete: () => void
   isDuplicate: boolean
 }) {
-  const operators = OPERATORS_FOR_TYPE[rule.type]
-  const supportsScope = SCOPED_RULE_TYPES.has(rule.type)
+  const operators    = OPERATORS_FOR_TYPE[rule.type]
+  const supportsScope     = SCOPED_RULE_TYPES.has(rule.type)
+  const supportsMatchMode = MATCH_MODE_RULE_TYPES.has(rule.type)
+  const matchMode    = rule.matchMode ?? 'all'
+  const needsMatchValue = matchMode === 'min' || matchMode === 'percent'
 
   function setType(type: RuleType) {
     const ops = OPERATORS_FOR_TYPE[type]
@@ -142,6 +149,10 @@ function RuleEditor({
       value:    defaultValueForType(type),
       // Reset scope to 'all' when switching to a non-scoped type
       scope: SCOPED_RULE_TYPES.has(type) ? (rule.scope ?? 'all') : 'all',
+      // Reset matchMode when switching to slide_count (presentation-level only)
+      matchMode:    type === 'slide_count' ? 'all' : (rule.matchMode ?? 'all'),
+      matchValue:   type === 'slide_count' ? undefined : rule.matchValue,
+      excludeFirst: type === 'slide_count' ? 0 : (rule.excludeFirst ?? 0),
     })
   }
 
@@ -152,8 +163,9 @@ function RuleEditor({
           Duplicate — a rule with this type{supportsScope ? ' and scope' : ''} already exists.
         </p>
       )}
+
+      {/* ── Row 1: name + severity + delete ── */}
       <div className="flex items-start gap-2">
-        {/* Rule name */}
         <div className="flex-1 min-w-0">
           <Input
             placeholder="Rule name (e.g. Title font size)"
@@ -162,7 +174,6 @@ function RuleEditor({
             className="text-xs h-8"
           />
         </div>
-        {/* Severity */}
         <Select value={rule.severity} onValueChange={(v) => onChange({ ...rule, severity: v as ValidationRule['severity'] })}>
           <SelectTrigger className="w-24 h-8 text-xs">
             <SelectValue />
@@ -178,6 +189,7 @@ function RuleEditor({
         </Button>
       </div>
 
+      {/* ── Row 2: type + scope + operator + value ── */}
       <div className="flex gap-2 flex-wrap">
         {/* Type */}
         <Select value={rule.type} onValueChange={(v) => setType(v as RuleType)}>
@@ -257,6 +269,64 @@ function RuleEditor({
           )
         )}
       </div>
+
+      {/* ── Row 3: slide matching (only for per-slide rule types) ── */}
+      {supportsMatchMode && (
+        <div className="flex gap-2 flex-wrap items-center pt-0.5 border-t border-dashed border-muted">
+          <span className="text-[11px] text-muted-foreground shrink-0 mt-1">Slides:</span>
+
+          {/* matchMode */}
+          <Select
+            value={matchMode}
+            onValueChange={(v) => onChange({
+              ...rule,
+              matchMode: v as RuleMatchMode,
+              // Clear matchValue when switching away from modes that need it
+              matchValue: (v === 'min' || v === 'percent') ? (rule.matchValue ?? (v === 'percent' ? 80 : 1)) : undefined,
+            })}
+          >
+            <SelectTrigger className="w-36 h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MATCH_MODE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  <span>{o.label}</span>
+                  <span className="ml-1.5 text-muted-foreground text-[10px]">— {o.hint}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* matchValue — shown for 'min' and 'percent' */}
+          {needsMatchValue && (
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={1}
+                max={matchMode === 'percent' ? 100 : undefined}
+                value={rule.matchValue ?? (matchMode === 'percent' ? 80 : 1)}
+                onChange={(e) => onChange({ ...rule, matchValue: Math.max(1, parseInt(e.target.value) || 1) })}
+                className="w-16 h-7 text-xs"
+              />
+              <span className="text-[11px] text-muted-foreground">{matchMode === 'percent' ? '%' : 'slides'}</span>
+            </div>
+          )}
+
+          {/* excludeFirst */}
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-[11px] text-muted-foreground">Skip first</span>
+            <Input
+              type="number"
+              min={0}
+              value={rule.excludeFirst ?? 0}
+              onChange={(e) => onChange({ ...rule, excludeFirst: Math.max(0, parseInt(e.target.value) || 0) })}
+              className="w-14 h-7 text-xs"
+            />
+            <span className="text-[11px] text-muted-foreground">slides</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

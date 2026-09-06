@@ -272,7 +272,7 @@ export function SubmissionCard(props: SubmissionCardProps) {
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-medium">{issue.ruleName}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {issue.slideIndex > 0 && <span className="mr-1">Slide {issue.slideIndex + 1}:</span>}
+                      {issue.slideIndex >= 0 && <span className="mr-1">Slide {issue.slideIndex + 1}:</span>}
                       {issue.message}
                     </p>
                   </div>
