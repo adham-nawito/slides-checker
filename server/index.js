@@ -1,32 +1,54 @@
-const http = require('http')
-const url  = require('url')
-const path = require('path')
-const fs   = require('fs')
+require('./env.js')   // load .env before anything reads process.env
+
+const http   = require('http')
+const url    = require('url')
+const path   = require('path')
+const fs     = require('fs')
 const crypto = require('crypto')
 const { readDb, withDb } = require('./db.js')
 const { createToken, verifyToken } = require('./auth.js')
 
-const PORT          = 3001
+const PORT          = process.env.PORT ? parseInt(process.env.PORT) : 3001
 const UPLOADS_DIR   = path.join(__dirname, 'uploads')
 const MAX_FILE_SIZE = 50 * 1024 * 1024  // 50 MB hard cap for uploaded PPTX files
 const ALLOWED_EXTS  = new Set(['.pptx', '.ppt'])
 const ALLOWED_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.ms-powerpoint',
-  'application/octet-stream', // some browsers send this for .pptx
+  // application/octet-stream intentionally excluded — extension check is the authority
 ])
+const CORS_ORIGIN   = process.env.CORS_ORIGIN || 'http://localhost:5173'
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 
 const CREDENTIALS = {
-  user:  { password: 'user123',  role: 'user'  },
-  admin: { password: 'admin123', role: 'admin' },
+  user:  { password: process.env.USER_PASSWORD  || 'user123',  role: 'user'  },
+  admin: { password: process.env.ADMIN_PASSWORD || 'admin123', role: 'admin' },
+}
+
+// ─── Login rate limiter (in-memory; resets on restart) ───────────────────────
+// Blocks an IP after LOGIN_MAX_ATTEMPTS failures within LOGIN_WINDOW_MS.
+const _loginAttempts = new Map()
+const LOGIN_MAX_ATTEMPTS = 10
+const LOGIN_WINDOW_MS    = 60_000  // 1 minute
+
+function checkLoginRateLimit(ip) {
+  const now   = Date.now()
+  const entry = _loginAttempts.get(ip) || { count: 0, resetAt: now + LOGIN_WINDOW_MS }
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + LOGIN_WINDOW_MS }
+  entry.count++
+  _loginAttempts.set(ip, entry)
+  return entry.count <= LOGIN_MAX_ATTEMPTS
+}
+
+function resetLoginRateLimit(ip) {
+  _loginAttempts.delete(ip)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN)
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
 }
@@ -159,9 +181,14 @@ const server = http.createServer(async (req, res) => {
 
     // ── POST /api/auth/login ──────────────────────────────────────────────────
     if (pathname === '/api/auth/login' && method === 'POST') {
+      const ip = req.socket.remoteAddress || 'unknown'
+      if (!checkLoginRateLimit(ip)) {
+        return json(res, 429, { error: 'Too many login attempts. Please wait a minute and try again.' })
+      }
       const { username, password } = await parseBody(req)
       const cred = CREDENTIALS[username]
       if (!cred || cred.password !== password) return json(res, 401, { error: 'Invalid credentials' })
+      resetLoginRateLimit(ip)  // successful login clears the counter
       const token = createToken(username, cred.role)
       return json(res, 200, { token, role: cred.role, username })
     }
@@ -253,19 +280,28 @@ const server = http.createServer(async (req, res) => {
         meta = await parseBody(req)
       }
 
+      // Validate tagId against the actual DB — don't trust client-supplied tagName/tagColor
+      const dbForTag = readDb()
+      const tag = dbForTag.tags.find(t => t.id === meta.tagId)
+      if (!tag) {
+        // Clean up already-stored file if tag is invalid
+        if (storedName) fs.unlinkSync(path.join(UPLOADS_DIR, storedName))
+        return json(res, 422, { error: 'Unknown guideline set. It may have been deleted.' })
+      }
+
       const submission = {
         id:           crypto.randomUUID(),
         fileName:     meta.fileName    || 'unknown.pptx',
         fileSize:     meta.fileSize    || 0,
-        tagId:        meta.tagId       || '',
-        tagName:      meta.tagName     || '',
+        tagId:        tag.id,            // from DB — not client
+        tagName:      tag.name,          // from DB — not client
+        tagColor:     tag.color,         // from DB — not client
         passPercent:  meta.passPercent || 0,
         slideCount:   meta.slideCount  || 0,
         summary:      meta.summary     || { errors: 0, warnings: 0, infos: 0, passing: 0 },
         issues:       meta.issues      || [],
-        storedName,                         // null if no file uploaded
-        tagColor:     meta.tagColor    || '#6366f1',
-        submittedBy:  user.username,        // always from the verified token
+        storedName,
+        submittedBy:  user.username,     // always from the verified token
         status:       'pending',
         submittedAt:  new Date().toISOString(),
         reviewedAt:   null,

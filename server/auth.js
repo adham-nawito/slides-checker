@@ -1,6 +1,8 @@
 const crypto = require('crypto')
 
-const SECRET = 'pptx-validator-secret-2026'
+const SECRET = process.env.AUTH_SECRET
+if (!SECRET) throw new Error('AUTH_SECRET environment variable is not set. Copy .env.example to .env and set a value.')
+
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 function b64url(buf) {
