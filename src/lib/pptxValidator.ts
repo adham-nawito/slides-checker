@@ -1,10 +1,15 @@
 /**
  * Validates a parsed PPTX presentation against a ValidationRuleSet.
  * Runs entirely in the browser — no server required.
+ *
+ * Scope filtering:
+ *   Every text-based rule has a `scope` field ('all' | 'title' | 'heading' | 'body' | 'footer').
+ *   The validator only checks paragraphs whose placeholderType matches the rule scope.
+ *   Scope "all" bypasses filtering and checks every paragraph.
  */
 
-import type { ParsedPresentation, ParsedSlide, ParsedRun } from './pptxParser'
-import type { ValidationRule, ValidationReport, SlideIssue, RuleSet } from '@/types'
+import type { ParsedPresentation, ParsedSlide, ParsedParagraph, ParsedRun } from './pptxParser'
+import type { ValidationRule, ValidationReport, SlideIssue, RuleSet, RuleScope } from '@/types'
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
@@ -18,8 +23,7 @@ export function validatePresentation(
 
   for (const slide of parsed.slides) {
     for (const rule of ruleSet.rules) {
-      const slideIssues = evaluateRule(rule, slide, parsed)
-      issues.push(...slideIssues)
+      issues.push(...evaluateRule(rule, slide, parsed))
     }
   }
 
@@ -29,9 +33,9 @@ export function validatePresentation(
     issuesByType[issue.ruleName].push(issue)
   }
 
-  const errors = issues.filter((i) => i.severity === 'error').length
+  const errors   = issues.filter((i) => i.severity === 'error').length
   const warnings = issues.filter((i) => i.severity === 'warning').length
-  const infos = issues.filter((i) => i.severity === 'info').length
+  const infos    = issues.filter((i) => i.severity === 'info').length
 
   // "Passing" = rules that produced zero issues across all slides
   const failingRuleIds = new Set(issues.map((i) => i.ruleId))
@@ -41,9 +45,9 @@ export function validatePresentation(
     id: `rep-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     fileId,
     fileName,
-    ruleSetId: ruleSet.id,
+    ruleSetId:   ruleSet.id,
     ruleSetName: ruleSet.name,
-    slideCount: parsed.slideCount,
+    slideCount:  parsed.slideCount,
     issues,
     issuesByType,
     summary: { errors, warnings, infos, passing },
@@ -62,91 +66,123 @@ function evaluateRule(
     case 'font_size':        return checkFontSize(rule, slide)
     case 'font_family':      return checkFontFamily(rule, slide)
     case 'font_color':       return checkFontColor(rule, slide)
-    case 'background_color': return []  // bg color requires theme resolution — not yet supported
+    case 'background_color': return []  // requires theme resolution — not yet supported
     case 'header_presence':  return checkPresence(rule, slide, 'header')
     case 'footer_presence':  return checkPresence(rule, slide, 'footer')
     case 'slide_count':      return []  // checked at presentation level, not per-slide
-    case 'image_count':      return []  // requires parsing <p:sp> blipFill — future extension
+    case 'image_count':      return []  // requires <p:sp blipFill> parsing — future extension
     case 'text_alignment':   return checkAlignment(rule, slide)
     case 'line_spacing':     return checkLineSpacing(rule, slide)
     default:                 return []
   }
 }
 
-// ─── Individual rule checkers ─────────────────────────────────────────────────
+// ─── Scope filtering ─────────────────────────────────────────────────────────
+
+/**
+ * Returns only the paragraphs that match the rule's scope.
+ * scope="all" → every paragraph on the slide.
+ * Any other scope → only paragraphs whose placeholderType matches exactly.
+ *
+ * This is the single choke-point for scope logic — add new scopes here.
+ */
+function scopedParagraphs(slide: ParsedSlide, scope: RuleScope): ParsedParagraph[] {
+  if (scope === 'all') return slide.paragraphs
+  return slide.paragraphs.filter((p) => p.placeholderType === scope)
+}
+
+// ─── Individual rule checkers ────────────────────────────────────────────────
 
 function checkFontSize(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
   const expected = parseFloat(rule.value)
   if (isNaN(expected)) return []
 
-  const issues: SlideIssue[] = []
-
-  for (const para of slide.paragraphs) {
+  for (const para of scopedParagraphs(slide, rule.scope)) {
     for (const run of para.runs) {
       if (run.fontSizePt === null) continue
       if (!compareNumbers(run.fontSizePt, expected, rule.operator)) {
-        issues.push(makeIssue(rule, slide, {
-          actual: `${run.fontSizePt}pt`,
+        return [makeIssue(rule, slide, {
+          actual:   `${run.fontSizePt}pt`,
           expected: `${operatorLabel(rule.operator)} ${expected}pt`,
-          message: `"${truncate(run.text)}" — font size is ${run.fontSizePt}pt, expected ${operatorLabel(rule.operator)} ${expected}pt`,
-        }))
-        break  // one issue per slide per rule is enough
+          message:  `"${truncate(run.text)}" — font size is ${run.fontSizePt}pt, expected ${operatorLabel(rule.operator)} ${expected}pt${scopeHint(rule.scope)}`,
+        })]
       }
     }
-    if (issues.length > 0) break
   }
-
-  return issues
+  return []
 }
 
 function checkFontFamily(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
   const expected = rule.value.trim().toLowerCase()
-  const issues: SlideIssue[] = []
 
-  for (const para of slide.paragraphs) {
+  for (const para of scopedParagraphs(slide, rule.scope)) {
     for (const run of para.runs) {
       if (!run.fontFamily) continue
       const actual = run.fontFamily.toLowerCase()
-      const passes =
-        rule.operator === 'contains' ? actual.includes(expected) : actual === expected
+      const passes = rule.operator === 'contains' ? actual.includes(expected) : actual === expected
       if (!passes) {
-        issues.push(makeIssue(rule, slide, {
-          actual: run.fontFamily,
+        return [makeIssue(rule, slide, {
+          actual:   run.fontFamily,
           expected: rule.value,
-          message: `Font "${run.fontFamily}" found in "${truncate(run.text)}", expected ${rule.operator === 'contains' ? 'containing' : ''} "${rule.value}"`,
-        }))
-        break
+          message:  `Font "${run.fontFamily}" found in "${truncate(run.text)}", expected ${rule.operator === 'contains' ? 'containing ' : ''}"${rule.value}"${scopeHint(rule.scope)}`,
+        })]
       }
     }
-    if (issues.length > 0) break
   }
-
-  return issues
+  return []
 }
 
 function checkFontColor(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
   const expected = normalizeHex(rule.value)
   if (!expected) return []
 
-  const issues: SlideIssue[] = []
-
-  for (const para of slide.paragraphs) {
+  for (const para of scopedParagraphs(slide, rule.scope)) {
     for (const run of para.runs) {
       if (!run.color) continue
       const actual = normalizeHex(run.color)
       if (actual && actual !== expected) {
-        issues.push(makeIssue(rule, slide, {
-          actual: run.color,
+        return [makeIssue(rule, slide, {
+          actual:   run.color,
           expected: rule.value,
-          message: `Color ${run.color} found in "${truncate(run.text)}", expected ${rule.value}`,
-        }))
-        break
+          message:  `Color ${run.color} found in "${truncate(run.text)}", expected ${rule.value}${scopeHint(rule.scope)}`,
+        })]
       }
     }
-    if (issues.length > 0) break
   }
+  return []
+}
 
-  return issues
+function checkAlignment(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
+  const expected = rule.value.toLowerCase()
+
+  for (const para of scopedParagraphs(slide, rule.scope)) {
+    if (!para.alignment) continue
+    if (para.alignment !== expected) {
+      return [makeIssue(rule, slide, {
+        actual:   para.alignment,
+        expected: rule.value,
+        message:  `Paragraph "${truncate(para.text)}" is ${para.alignment}-aligned, expected ${rule.value}${scopeHint(rule.scope)}`,
+      })]
+    }
+  }
+  return []
+}
+
+function checkLineSpacing(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
+  const expected = parseFloat(rule.value)
+  if (isNaN(expected)) return []
+
+  for (const para of scopedParagraphs(slide, rule.scope)) {
+    if (para.lineSpacing === null) continue
+    if (!compareNumbers(para.lineSpacing, expected, rule.operator)) {
+      return [makeIssue(rule, slide, {
+        actual:   `${para.lineSpacing}`,
+        expected: `${operatorLabel(rule.operator)} ${expected}`,
+        message:  `Line spacing is ${para.lineSpacing}pt, expected ${operatorLabel(rule.operator)} ${expected}pt${scopeHint(rule.scope)}`,
+      })]
+    }
+  }
+  return []
 }
 
 function checkPresence(
@@ -157,55 +193,15 @@ function checkPresence(
   const present = target === 'header' ? slide.hasHeader : slide.hasFooter
   if (!present) {
     return [makeIssue(rule, slide, {
-      actual: 'absent',
+      actual:   'absent',
       expected: 'present',
-      message: `Slide has no ${target}`,
+      message:  `Slide has no ${target}`,
     })]
   }
   return []
 }
 
-function checkAlignment(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
-  const expected = rule.value.toLowerCase()
-  const issues: SlideIssue[] = []
-
-  for (const para of slide.paragraphs) {
-    if (!para.alignment) continue
-    if (para.alignment !== expected) {
-      issues.push(makeIssue(rule, slide, {
-        actual: para.alignment,
-        expected: rule.value,
-        message: `Paragraph "${truncate(para.text)}" is ${para.alignment}-aligned, expected ${rule.value}`,
-      }))
-      break
-    }
-  }
-
-  return issues
-}
-
-function checkLineSpacing(rule: ValidationRule, slide: ParsedSlide): SlideIssue[] {
-  const expected = parseFloat(rule.value)
-  if (isNaN(expected)) return []
-
-  const issues: SlideIssue[] = []
-
-  for (const para of slide.paragraphs) {
-    if (para.lineSpacing === null) continue
-    if (!compareNumbers(para.lineSpacing, expected, rule.operator)) {
-      issues.push(makeIssue(rule, slide, {
-        actual: `${para.lineSpacing}`,
-        expected: `${operatorLabel(rule.operator)} ${expected}`,
-        message: `Line spacing is ${para.lineSpacing}pt, expected ${operatorLabel(rule.operator)} ${expected}pt`,
-      }))
-      break
-    }
-  }
-
-  return issues
-}
-
-// ─── Presentation-level checks (called separately) ───────────────────────────
+// ─── Presentation-level checks (called separately from Upload.tsx) ────────────
 
 export function checkPresentationLevelRules(
   parsed: ParsedPresentation,
@@ -218,15 +214,15 @@ export function checkPresentationLevelRules(
       const expected = parseInt(rule.value, 10)
       if (!isNaN(expected) && !compareNumbers(parsed.slideCount, expected, rule.operator)) {
         issues.push({
-          id: issueId(),
+          id:         issueId(),
           slideIndex: 0,
           slideTitle: 'Presentation',
-          ruleId: rule.id,
-          ruleName: rule.name,
-          severity: rule.severity,
-          actual: `${parsed.slideCount}`,
-          expected: `${operatorLabel(rule.operator)} ${expected}`,
-          message: `Presentation has ${parsed.slideCount} slides, expected ${operatorLabel(rule.operator)} ${expected}`,
+          ruleId:     rule.id,
+          ruleName:   rule.name,
+          severity:   rule.severity,
+          actual:     `${parsed.slideCount}`,
+          expected:   `${operatorLabel(rule.operator)} ${expected}`,
+          message:    `Presentation has ${parsed.slideCount} slides, expected ${operatorLabel(rule.operator)} ${expected}`,
         })
       }
     }
@@ -243,19 +239,29 @@ function makeIssue(
   overrides: { actual?: string; expected?: string; message: string },
 ): SlideIssue {
   return {
-    id: issueId(),
+    id:         issueId(),
     slideIndex: slide.index,
     slideTitle: slide.title ?? undefined,
-    ruleId: rule.id,
-    ruleName: rule.name,
-    severity: rule.severity,
-    message: overrides.message,
-    actual: overrides.actual,
-    expected: overrides.expected,
+    ruleId:     rule.id,
+    ruleName:   rule.name,
+    severity:   rule.severity,
+    message:    overrides.message,
+    actual:     overrides.actual,
+    expected:   overrides.expected,
   }
 }
 
-function compareNumbers(actual: number, expected: number, operator: ValidationRule['operator']): boolean {
+/** Appends a readable scope hint to issue messages when scope isn't "all". */
+function scopeHint(scope: RuleScope): string {
+  if (scope === 'all') return ''
+  return ` (${scope} placeholder)`
+}
+
+function compareNumbers(
+  actual: number,
+  expected: number,
+  operator: ValidationRule['operator'],
+): boolean {
   switch (operator) {
     case 'equals':       return actual === expected
     case 'greater_than': return actual > expected
@@ -286,5 +292,5 @@ function issueId(): string {
   return `issue-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-// Exported so slide_count rule can be evaluated after slides are parsed
+// Re-export for callers that previously imported ParsedRun from here
 export type { ParsedRun }

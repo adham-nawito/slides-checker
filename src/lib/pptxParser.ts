@@ -8,11 +8,25 @@
  *
  * We extract font sizes, font families, colors, header/footer presence,
  * text alignment, and line spacing from each slide's XML.
+ *
+ * Each paragraph is tagged with its placeholder type (title / heading /
+ * body / footer) so the validator can apply scoped rules correctly.
  */
 
 import JSZip from 'jszip'
 
 // ─── Public types ────────────────────────────────────────────────────────────
+
+/**
+ * Maps PPTX placeholder types to our rule-scope vocabulary.
+ *
+ * PPTX <p:ph> type attribute → PlaceholderType
+ *   "title" | "ctrTitle"  → "title"
+ *   "subTitle"             → "heading"
+ *   "body" | (default)     → "body"
+ *   "ftr"                  → "footer"
+ */
+export type PlaceholderType = 'title' | 'heading' | 'body' | 'footer'
 
 export interface ParsedSlide {
   index: number          // 0-based
@@ -26,12 +40,13 @@ export interface ParsedParagraph {
   text: string
   runs: ParsedRun[]
   alignment: 'left' | 'center' | 'right' | 'justify' | null
-  lineSpacing: number | null   // in points (spcPts / 100) or null
+  lineSpacing: number | null      // in points (spcPts / 100) or null
+  placeholderType: PlaceholderType // which placeholder this paragraph came from
 }
 
 export interface ParsedRun {
   text: string
-  fontSizePt: number | null    // emu hundredths → pt  (sz / 100)
+  fontSizePt: number | null    // sz / 100 → pt
   fontFamily: string | null
   color: string | null         // #RRGGBB or null
   bold: boolean
@@ -47,9 +62,8 @@ export interface ParsedPresentation {
 
 export async function parsePptx(file: File): Promise<ParsedPresentation> {
   const buffer = await file.arrayBuffer()
-  const zip = await JSZip.loadAsync(buffer)
+  const zip    = await JSZip.loadAsync(buffer)
 
-  // Collect slide XML files in order
   const slideEntries = Object.keys(zip.files)
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
     .sort((a, b) => slideNumber(a) - slideNumber(b))
@@ -65,54 +79,81 @@ export async function parsePptx(file: File): Promise<ParsedPresentation> {
 
 async function parseSlideXml(zip: JSZip, path: string, index: number): Promise<ParsedSlide> {
   const xmlText = await zip.file(path)!.async('string')
-  const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+  const doc     = new DOMParser().parseFromString(xmlText, 'application/xml')
 
-  const paragraphs = parseParagraphs(doc)
+  // Iterate over every text shape (<p:sp>) and tag its paragraphs with the
+  // shape's placeholder type. Shapes without a <p:ph> element default to "body".
+  const paragraphs: ParsedParagraph[] = []
+  for (const shape of Array.from(doc.querySelectorAll('sp'))) {
+    const phEl           = shape.querySelector('ph')
+    const placeholderType = resolvePlaceholderType(phEl?.getAttribute('type') ?? null)
+    paragraphs.push(...parseParagraphsInShape(shape, placeholderType))
+  }
 
-  // Title heuristic: first non-empty paragraph in a title/body placeholder (ph type="title" or idx=0)
-  const titleEl = doc.querySelector('[type="title"] ~ * p, [type="ctrTitle"] ~ * p')
-  const titleText = titleEl ? innerText(titleEl) : (paragraphs[0]?.text ?? null)
+  // Title: first paragraph from a title placeholder (fallback: first paragraph overall)
+  const titlePara = paragraphs.find((p) => p.placeholderType === 'title')
+  const titleText = titlePara?.text ?? paragraphs[0]?.text ?? null
 
-  // Header = any text shape tagged as hdr, or a placeholder with idx=0 outside the body
+  // hasHeader/hasFooter remain presence checks on the slide XML
   const hasHeader = doc.querySelector('[type="title"], [type="ctrTitle"]') !== null
   const hasFooter = doc.querySelector('[type="ftr"]') !== null
 
   return { index, title: titleText || null, paragraphs, hasHeader, hasFooter }
 }
 
-function parseParagraphs(doc: Document): ParsedParagraph[] {
-  return Array.from(doc.querySelectorAll('p')).map((pEl) => {
-    const runs = parseRuns(pEl)
-    const text = runs.map((r) => r.text).join('')
+/**
+ * Maps a raw PPTX placeholder type string to our PlaceholderType enum.
+ * Anything unrecognised is treated as body content.
+ */
+function resolvePlaceholderType(phType: string | null): PlaceholderType {
+  switch (phType) {
+    case 'title':
+    case 'ctrTitle':  return 'title'
+    case 'subTitle':  return 'heading'
+    case 'ftr':       return 'footer'
+    default:          return 'body'   // "body", null, or any other value
+  }
+}
 
-    const pPrEl = pEl.querySelector('pPr')
-    const alignment = parseAlignment(pPrEl?.getAttribute('algn') ?? null)
+function parseParagraphsInShape(
+  shape: Element,
+  placeholderType: PlaceholderType,
+): ParsedParagraph[] {
+  return Array.from(shape.querySelectorAll('p'))
+    .map((pEl) => {
+      const runs = parseRuns(pEl)
+      const text = runs.map((r) => r.text).join('')
 
-    // Line spacing: lnSpc > spcPts (in hundredths of a point) or spcPct
-    const spcPtsEl = pEl.querySelector('lnSpc spcPts')
-    const lineSpacing = spcPtsEl ? parseInt(spcPtsEl.getAttribute('val') ?? '0', 10) / 100 : null
+      const pPrEl       = pEl.querySelector('pPr')
+      const alignment   = parseAlignment(pPrEl?.getAttribute('algn') ?? null)
 
-    return { text, runs, alignment, lineSpacing }
-  }).filter((p) => p.text.trim().length > 0)
+      const spcPtsEl    = pEl.querySelector('lnSpc spcPts')
+      const lineSpacing = spcPtsEl
+        ? parseInt(spcPtsEl.getAttribute('val') ?? '0', 10) / 100
+        : null
+
+      return { text, runs, alignment, lineSpacing, placeholderType }
+    })
+    .filter((p) => p.text.trim().length > 0)
 }
 
 function parseRuns(pEl: Element): ParsedRun[] {
   return Array.from(pEl.querySelectorAll('r')).map((rEl) => {
-    const tEl = rEl.querySelector('t')
+    const tEl  = rEl.querySelector('t')
     const text = tEl?.textContent ?? ''
 
     const rPrEl = rEl.querySelector('rPr')
 
-    const szRaw = rPrEl?.getAttribute('sz')           // hundredths of a point
+    const szRaw     = rPrEl?.getAttribute('sz')
     const fontSizePt = szRaw ? parseInt(szRaw, 10) / 100 : null
 
-    const latinEl = rPrEl?.querySelector('latin')
+    const latinEl   = rPrEl?.querySelector('latin')
     const fontFamily = latinEl?.getAttribute('typeface') ?? null
 
     const solidFillEl = rPrEl?.querySelector('solidFill')
-    const color = parseSolidFill(solidFillEl)
+    const color       = parseSolidFill(solidFillEl)
 
-    const bold = rPrEl?.getAttribute('b') === '1'
+    const bold   = rPrEl?.getAttribute('b') === '1'
     const italic = rPrEl?.getAttribute('i') === '1'
 
     return { text, fontSizePt, fontFamily, color, bold, italic }
@@ -128,7 +169,7 @@ function parseSolidFill(el: Element | null | undefined): string | null {
     const val = srgbEl.getAttribute('val')
     return val ? `#${val.toUpperCase()}` : null
   }
-  // Theme color references (schemeClr) — we can't resolve without theme.xml, return null
+  // Theme color references (schemeClr) require theme.xml resolution — return null
   return null
 }
 
@@ -136,12 +177,7 @@ function parseAlignment(raw: string | null): ParsedParagraph['alignment'] {
   const map: Record<string, ParsedParagraph['alignment']> = {
     l: 'left', ctr: 'center', r: 'right', just: 'justify',
   }
-  if (!raw) return null
-  return map[raw] ?? null
-}
-
-function innerText(el: Element): string {
-  return Array.from(el.querySelectorAll('t')).map((t) => t.textContent ?? '').join('')
+  return raw ? (map[raw] ?? null) : null
 }
 
 function slideNumber(path: string): number {
