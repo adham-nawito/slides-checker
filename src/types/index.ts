@@ -116,11 +116,9 @@ export interface Submission {
   }
   issues: SlideIssue[]
   submittedBy: string
+  tagColor: string           // snapshot of the tag colour at submit time
+  storedName: string | null  // server-side filename; null for legacy submissions
   status: 'pending' | 'reviewed'
   submittedAt: string
   reviewedAt: string | null
 }
-
-// ─── Misc ─────────────────────────────────────────────────────────────────────
-
-export type TemplateId = 'corporate_branding' | 'academic_presentation' | 'minimal' | 'custom'

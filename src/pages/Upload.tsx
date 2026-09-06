@@ -128,6 +128,7 @@ export default function Upload() {
             fileSize:    file.size,
             tagId:       selectedTag.id,
             tagName:     selectedTag.name,
+            tagColor:    selectedTag.color,
             passPercent,
             slideCount:  parsed.slideCount,
             summary:     report.summary,

@@ -264,6 +264,7 @@ const server = http.createServer(async (req, res) => {
         summary:      meta.summary     || { errors: 0, warnings: 0, infos: 0, passing: 0 },
         issues:       meta.issues      || [],
         storedName,                         // null if no file uploaded
+        tagColor:     meta.tagColor    || '#6366f1',
         submittedBy:  user.username,        // always from the verified token
         status:       'pending',
         submittedAt:  new Date().toISOString(),

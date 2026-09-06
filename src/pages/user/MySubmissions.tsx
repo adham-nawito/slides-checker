@@ -62,7 +62,7 @@ function SubmissionCard({ sub }: { sub: Submission }) {
             <p className="text-xs text-muted-foreground mt-0.5">
               <span
                 className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle"
-                style={{ background: '#6366f1' }}
+                style={{ background: sub.tagColor || '#6366f1' }}
               />
               {sub.tagName} · {formatBytes(sub.fileSize)} · {sub.slideCount} slides · {timeAgo(sub.submittedAt)}
             </p>

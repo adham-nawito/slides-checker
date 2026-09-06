@@ -57,6 +57,7 @@ export interface SubmitPayload {
   fileSize: number
   tagId: string
   tagName: string
+  tagColor: string
   passPercent: number
   slideCount: number
   summary: { errors: number; warnings: number; infos: number; passing: number }

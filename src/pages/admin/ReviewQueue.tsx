@@ -90,7 +90,7 @@ function SubmissionCard({ sub, onReview }: { sub: Submission; onReview: (id: str
             <p className="text-xs text-muted-foreground mt-0.5">
               <span
                 className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle"
-                style={{ background: '#6366f1' }}
+                style={{ background: sub.tagColor || '#6366f1' }}
               />
               {sub.tagName} · {formatBytes(sub.fileSize)} · {sub.slideCount} slides · {timeAgo(sub.submittedAt)}
               {sub.submittedBy && (
@@ -130,13 +130,14 @@ function SubmissionCard({ sub, onReview }: { sub: Submission; onReview: (id: str
             {expanded ? 'Hide' : 'View'} issues ({sub.issues.length})
           </Button>
 
-          {/* Download button — always visible for admin */}
+          {/* Download button — disabled for legacy submissions without a stored file */}
           <Button
             variant="outline"
             size="sm"
             className="text-xs gap-1"
             onClick={() => download(sub.id, sub.fileName)}
-            disabled={downloading === sub.id}
+            disabled={!sub.storedName || downloading === sub.id}
+            title={!sub.storedName ? 'File not available — submitted before file storage was enabled' : undefined}
           >
             <Download className="w-3.5 h-3.5" />
             {downloading === sub.id ? 'Downloading…' : 'Download'}
